@@ -160,7 +160,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Kaku Gothic ProN','N
 
 <!-- ===== 画面3: プレビュー ===== -->
 <div id="screen-preview" class="screen">
-  <button class="btn btn-primary" onclick="downloadPDF()">PDF ダウンロード</button>
+  <div style="display:flex;gap:8px;margin-bottom:10px">
+    <button class="btn btn-primary" style="flex:1;margin:0" onclick="downloadPDF()">PDF ダウンロード</button>
+    <button class="btn btn-danger" style="flex:1;margin:0" onclick="cancelInvoice()">この請求書を取消</button>
+  </div>
   <div class="preview-wrap">
     <div id="invoicePreview"></div>
   </div>
@@ -602,6 +605,7 @@ function generateInvoice() {
   // 発行済みとして記録
   issued.push(invNumber);
   localStorage.setItem('issuedNumbers', JSON.stringify(issued));
+  APP.lastInvoiceNumber = invNumber;
 
   const subject = m + '月納品分ご請求/お弁当代';
 
@@ -680,6 +684,17 @@ function generateInvoice() {
     '三菱UFJ銀行 福岡中央支店 （普）0043573 株式会社プレナス</div>';
 
   showScreen('preview');
+}
+
+function cancelInvoice() {
+  if (!APP.lastInvoiceNumber) { alert('取消できる請求書がありません'); return; }
+  if (!confirm('請求番号 ' + APP.lastInvoiceNumber + ' を取り消しますか？\n発行済み番号が削除されます。')) return;
+  let issued = JSON.parse(localStorage.getItem('issuedNumbers') || '[]');
+  issued = issued.filter(n => n !== APP.lastInvoiceNumber);
+  localStorage.setItem('issuedNumbers', JSON.stringify(issued));
+  APP.lastInvoiceNumber = null;
+  alert('請求書を取り消しました');
+  goBack();
 }
 
 // ============================================================

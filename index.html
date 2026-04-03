@@ -199,6 +199,16 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Kaku Gothic ProN','N
     <span class="total-amount" id="monthTotal">¥ 0</span>
   </div>
   <button class="btn btn-primary" onclick="APP.insertBeforeId=null;openDeliveryModal()">+ 納品を追加</button>
+  <div class="setting-section" style="margin-top:12px">
+    <div class="form-group" style="margin-bottom:10px">
+      <label style="font-size:13px;font-weight:600">請求日</label>
+      <input type="date" id="invDateInput">
+    </div>
+    <div class="form-group" style="margin-bottom:0">
+      <label style="font-size:13px;font-weight:600">件名</label>
+      <input type="text" id="invSubjectInput" placeholder="例: 3月納品分ご請求/お弁当代">
+    </div>
+  </div>
   <button class="btn btn-outline" onclick="generateInvoice()">請求書を発行</button>
 </div>
 
@@ -470,6 +480,9 @@ function changeMonth(delta) {
   APP.currentMonth += delta;
   if (APP.currentMonth > 12) { APP.currentMonth = 1; APP.currentYear++; }
   if (APP.currentMonth < 1) { APP.currentMonth = 12; APP.currentYear--; }
+  // 月切り替え時にデフォルト値をリセット
+  document.getElementById('invDateInput').value = '';
+  document.getElementById('invSubjectInput').value = '';
   loadDeliveries();
 }
 
@@ -542,6 +555,18 @@ function renderDeliveries() {
 
   document.getElementById('deliveryList').innerHTML = html;
   document.getElementById('monthTotal').textContent = '¥ ' + total.toLocaleString();
+
+  // 請求日・件名のデフォルト値を設定（まだ未入力の場合のみ）
+  const invDateEl = document.getElementById('invDateInput');
+  const invSubjectEl = document.getElementById('invSubjectInput');
+  if (invDateEl && !invDateEl.value) {
+    let iy = APP.currentYear, im = APP.currentMonth + 1;
+    if (im > 12) { im = 1; iy++; }
+    invDateEl.value = iy + '-' + String(im).padStart(2,'0') + '-01';
+  }
+  if (invSubjectEl && !invSubjectEl.value) {
+    invSubjectEl.value = APP.currentMonth + '月納品分ご請求/お弁当代';
+  }
 }
 
 function getClientMonthDeliveries() {
@@ -698,23 +723,33 @@ function generateInvoice() {
   const client = APP.currentClient.name;
   const y = APP.currentYear;
   const m = APP.currentMonth;
-  const dateStr = y + '年' + String(m + 1 > 12 ? 1 : m + 1).padStart(2,'0') + '月01日';
-  // 請求日は翌月1日
-  let invYear = y, invMonth = m + 1;
-  if (invMonth > 12) { invMonth = 1; invYear++; }
-  const invDateStr = invYear + '年' + String(invMonth).padStart(2,'0') + '月01日';
-  const invNumPrefix = String(invYear) + String(invMonth).padStart(2,'0') + '01';
-  // 連番を自動採番（発行済み番号から最大値+1）
+
+  // 請求日：入力値 or デフォルト（翌月1日）
+  const invDateRaw = document.getElementById('invDateInput').value;
+  let invDateStr;
+  if (invDateRaw) {
+    const parts = invDateRaw.split('-');
+    invDateStr = parseInt(parts[0]) + '年' + String(parseInt(parts[1])).padStart(2,'0') + '月' + String(parseInt(parts[2])).padStart(2,'0') + '日';
+  } else {
+    let invYear = y, invMonth = m + 1;
+    if (invMonth > 12) { invMonth = 1; invYear++; }
+    invDateStr = invYear + '年' + String(invMonth).padStart(2,'0') + '月01日';
+  }
+
+  // 請求番号の採番
+  const invDateForNum = invDateRaw || (function(){ let iy=y,im=m+1; if(im>12){im=1;iy++;} return iy+'-'+String(im).padStart(2,'0')+'-01'; })();
+  const dp = invDateForNum.split('-');
+  const invNumPrefix = dp[0] + dp[1] + dp[2];
   const issued = JSON.parse(localStorage.getItem('issuedNumbers') || '[]');
   let maxSeq = 0;
   issued.forEach(n => { if (n.startsWith(invNumPrefix + '-')) { const s = parseInt(n.split('-')[1],10); if (s > maxSeq) maxSeq = s; }});
   const invNumber = invNumPrefix + '-' + String(maxSeq + 1).padStart(3, '0');
-  // 発行済みとして記録
   issued.push(invNumber);
   localStorage.setItem('issuedNumbers', JSON.stringify(issued));
   APP.lastInvoiceNumber = invNumber;
 
-  const subject = m + '月納品分ご請求/お弁当代';
+  // 件名：入力値 or デフォルト
+  const subject = document.getElementById('invSubjectInput').value.trim() || (m + '月納品分ご請求/お弁当代');
 
   // 集計
   let subtotal = 0;

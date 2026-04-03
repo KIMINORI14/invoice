@@ -102,6 +102,48 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Kaku Gothic ProN','N
 .inv-table td{border:1px solid #999;padding:6px 8px}
 .col-name{width:55%;text-align:left}.col-mark{width:3%;text-align:center}.col-qty{width:10%;text-align:center}.col-price{width:16%;text-align:right}.col-amount{width:16%;text-align:right}
 .empty-row td{height:24px}
+
+/* 項目数に応じたコンパクトモード（13〜20件） */
+#invoicePreview.inv-compact{min-height:auto}
+#invoicePreview.inv-compact .inv-title{font-size:18pt;margin:12px 0 18px;letter-spacing:6px}
+#invoicePreview.inv-compact .inv-header{margin-bottom:12px}
+#invoicePreview.inv-compact .inv-table{font-size:8.5pt}
+#invoicePreview.inv-compact .inv-table th,#invoicePreview.inv-compact .inv-table td{padding:3px 6px}
+#invoicePreview.inv-compact .empty-row td{height:14px}
+#invoicePreview.inv-compact .inv-summary{margin-top:6px}
+#invoicePreview.inv-compact .inv-notes{margin-top:16px}
+
+/* 超コンパクトモード（21〜30件） */
+#invoicePreview.inv-compact-l{min-height:auto}
+#invoicePreview.inv-compact-l .inv-title{font-size:16pt;margin:8px 0 14px;letter-spacing:4px}
+#invoicePreview.inv-compact-l .inv-number{margin-bottom:10px}
+#invoicePreview.inv-compact-l .inv-header{margin-bottom:8px}
+#invoicePreview.inv-compact-l .inv-table{font-size:7.5pt}
+#invoicePreview.inv-compact-l .inv-table th,#invoicePreview.inv-compact-l .inv-table td{padding:2px 4px}
+#invoicePreview.inv-compact-l .empty-row td{height:0;padding:0}
+#invoicePreview.inv-compact-l .inv-summary{margin-top:4px}
+#invoicePreview.inv-compact-l .inv-summary-table{font-size:8.5pt}
+#invoicePreview.inv-compact-l .inv-notes{margin-top:10px;font-size:8pt;line-height:1.5}
+#invoicePreview.inv-compact-l .inv-bank{font-size:8pt;line-height:1.5}
+
+/* 最大コンパクトモード（31件以上） */
+#invoicePreview.inv-compact-xl{min-height:auto}
+#invoicePreview.inv-compact-xl .inv-title{font-size:14pt;margin:6px 0 10px;letter-spacing:3px}
+#invoicePreview.inv-compact-xl .inv-number{margin-bottom:8px}
+#invoicePreview.inv-compact-xl .inv-header{margin-bottom:6px}
+#invoicePreview.inv-compact-xl .inv-client{font-size:10pt;margin-bottom:8px}
+#invoicePreview.inv-compact-xl .inv-total-display{font-size:13pt}
+#invoicePreview.inv-compact-xl .inv-company-detail{font-size:8pt}
+#invoicePreview.inv-compact-xl .inv-table{font-size:7pt}
+#invoicePreview.inv-compact-xl .inv-table th,#invoicePreview.inv-compact-xl .inv-table td{padding:1.5px 3px}
+#invoicePreview.inv-compact-xl .empty-row td{height:0;padding:0}
+#invoicePreview.inv-compact-xl .inv-summary{margin-top:2px}
+#invoicePreview.inv-compact-xl .inv-summary-table{font-size:8pt}
+#invoicePreview.inv-compact-xl .inv-notes{margin-top:8px;font-size:7.5pt;line-height:1.4}
+#invoicePreview.inv-compact-xl .inv-bank{font-size:7.5pt;line-height:1.4}
+#invoicePreview.inv-compact-xl .seal{width:50px;height:50px}
+#invoicePreview.inv-compact-xl .seal-col{font-size:10px}
+
 .inv-summary{display:flex;justify-content:space-between;margin-top:10px}
 .inv-summary-left{font-size:9pt}
 .inv-summary-table{border-collapse:collapse;font-size:9.5pt}
@@ -114,13 +156,12 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Kaku Gothic ProN','N
 /* レスポンシブ */
 @media(max-width:600px){
   .form-row{flex-direction:column;gap:0}
-  .preview-wrap{padding:8px}
+  .preview-wrap{padding:8px;overflow:visible;position:relative}
   #invoicePreview{transform:scale(0.45);transform-origin:top left}
-  .preview-wrap{height:calc(297mm * 0.45 + 20px);overflow:hidden}
 }
 @media(min-width:601px) and (max-width:900px){
   #invoicePreview{transform:scale(0.65);transform-origin:top left}
-  .preview-wrap{height:calc(297mm * 0.65 + 20px);overflow:hidden}
+  .preview-wrap{overflow:visible;position:relative}
 }
 .empty-msg{text-align:center;color:#999;padding:40px 0;font-size:14px}
 </style>
@@ -627,6 +668,18 @@ function generateInvoice() {
   const hasReduced = items.some(d => d.tax === 8);
 
   // 明細行
+  // 項目数に応じたサイズクラスを決定
+  const itemCount = items.length;
+  let sizeClass = '';
+  let minRows = 15;
+  if (itemCount > 30) {
+    sizeClass = 'inv-compact-xl'; minRows = itemCount;
+  } else if (itemCount > 20) {
+    sizeClass = 'inv-compact-l'; minRows = itemCount;
+  } else if (itemCount > 12) {
+    sizeClass = 'inv-compact'; minRows = Math.max(itemCount, 20);
+  }
+
   let rows = items.map(d => {
     const amt = d.qty * d.price;
     const dateLabel = d.date.replace(/(\d{4})-(\d{2})-(\d{2})/, '$1/$2/$3');
@@ -638,7 +691,7 @@ function generateInvoice() {
       '<td class="col-amount">' + amt.toLocaleString() + '</td></tr>';
   }).join('');
 
-  for (let i = items.length; i < 8; i++) {
+  for (let i = items.length; i < minRows; i++) {
     rows += '<tr class="empty-row"><td></td><td></td><td></td><td></td><td></td></tr>';
   }
 
@@ -650,7 +703,11 @@ function generateInvoice() {
     taxRows += '<tr><td class="label">' + label + '</td><td class="value">(' + taxAmt.toLocaleString() + ')</td></tr>';
   });
 
-  document.getElementById('invoicePreview').innerHTML =
+  // サイズクラスを適用
+  const previewEl = document.getElementById('invoicePreview');
+  previewEl.className = sizeClass;
+
+  previewEl.innerHTML =
     '<div class="inv-date">' + invDateStr + '</div>' +
     '<div class="inv-number">請求番号: ' + invNumber + '</div>' +
     '<div class="inv-title">請 求 書</div>' +
@@ -689,6 +746,20 @@ function generateInvoice() {
     '三菱UFJ銀行 福岡中央支店 （普）0043573 株式会社プレナス</div>';
 
   showScreen('preview');
+
+  // モバイルプレビューの高さを動的調整
+  setTimeout(() => {
+    const wrap = previewEl.closest('.preview-wrap');
+    if (wrap) {
+      const w = window.innerWidth;
+      const scale = w <= 600 ? 0.45 : w <= 900 ? 0.65 : 1;
+      if (scale < 1) {
+        wrap.style.height = (previewEl.scrollHeight * scale + 20) + 'px';
+      } else {
+        wrap.style.height = '';
+      }
+    }
+  }, 50);
 }
 
 function cancelInvoice() {
@@ -708,11 +779,12 @@ function cancelInvoice() {
 function downloadPDF() {
   const el = document.getElementById('invoicePreview');
   html2pdf().set({
-    margin: 0,
+    margin: [0, 0, 0, 0],
     filename: 'invoice.pdf',
     image: {type:'jpeg', quality:0.98},
     html2canvas: {scale:2, useCORS:true},
-    jsPDF: {unit:'mm', format:'a4', orientation:'portrait'}
+    jsPDF: {unit:'mm', format:'a4', orientation:'portrait'},
+    pagebreak: {mode: ['css', 'legacy'], avoid: ['.inv-summary', '.inv-notes', '.inv-bank']}
   }).from(el).save();
 }
 

@@ -332,13 +332,15 @@ function updateConnStatus() {
 // 得意先管理
 // ============================================================
 async function loadClients() {
-  if (isOnline()) {
-    const d = await gasGet({action:'clients'});
-    if (d && d.clients) { APP.clients = d.clients; localStorage.setItem('clients', JSON.stringify(APP.clients)); }
-  } else {
-    APP.clients = JSON.parse(localStorage.getItem('clients') || '[]');
-  }
+  // まずローカルデータで即座に表示
+  APP.clients = JSON.parse(localStorage.getItem('clients') || '[]');
   renderHome();
+  // バックグラウンドでGASと同期
+  if (isOnline()) {
+    gasGet({action:'clients'}).then(d => {
+      if (d && d.clients) { APP.clients = d.clients; localStorage.setItem('clients', JSON.stringify(APP.clients)); renderHome(); }
+    });
+  }
 }
 
 function renderHome() {
@@ -354,7 +356,8 @@ function renderHome() {
     });
     const total = monthDlvs.reduce((s, d) => s + d.qty * d.price, 0);
     const count = monthDlvs.length;
-    return '<div class="card" onclick="openClient(\'' + c.id + '\')">' +
+    return '<div class="card" onclick="openClient(\'' + c.id + '\')" style="position:relative">' +
+      '<button onclick="event.stopPropagation();deleteClient(\'' + c.id + '\')" style="position:absolute;top:8px;right:8px;background:none;border:none;color:#ccc;font-size:18px;cursor:pointer;padding:4px 8px">&#10005;</button>' +
       '<div class="card-title">' + esc(c.name) + '</div>' +
       '<div class="card-sub">今月: ' + count + '件</div>' +
       (total > 0 ? '<div class="card-amount">¥ ' + total.toLocaleString() + '</div>' : '') +
@@ -370,29 +373,31 @@ function openClientModal() {
   document.getElementById('newClientName').focus();
 }
 
-async function addClient() {
+function addClient() {
   const name = document.getElementById('newClientName').value.trim();
   if (!name) return;
-  const id = isOnline() ? null : 'c_' + Date.now();
-  if (isOnline()) {
-    const r = await gasPost({action:'addClient', name});
-    if (r && r.success) APP.clients.push({id:r.id, name});
-  } else {
-    APP.clients.push({id, name});
-  }
+  const id = 'c_' + Date.now();
+  APP.clients.push({id, name});
   localStorage.setItem('clients', JSON.stringify(APP.clients));
   closeModal('clientModal');
   renderHome();
   renderClientManage();
+  if (isOnline()) gasPost({action:'addClient', name}).then(r => {
+    if (r && r.success && r.id) {
+      const c = APP.clients.find(x => x.id === id);
+      if (c) c.id = r.id;
+      localStorage.setItem('clients', JSON.stringify(APP.clients));
+    }
+  });
 }
 
-async function deleteClient(id) {
+function deleteClient(id) {
   if (!confirm('この得意先を削除しますか？')) return;
-  if (isOnline()) await gasPost({action:'deleteClient', id});
   APP.clients = APP.clients.filter(c => c.id !== id);
   localStorage.setItem('clients', JSON.stringify(APP.clients));
   renderHome();
   renderClientManage();
+  if (isOnline()) gasPost({action:'deleteClient', id});
 }
 
 function renderClientManage() {

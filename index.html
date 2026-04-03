@@ -464,14 +464,48 @@ function openClient(id) {
   APP.currentYear = new Date().getFullYear();
   APP.currentMonth = new Date().getMonth() + 1;
   showScreen('client');
-  renderDeliveries();
+  loadDeliveries();
 }
 
 function changeMonth(delta) {
   APP.currentMonth += delta;
   if (APP.currentMonth > 12) { APP.currentMonth = 1; APP.currentYear++; }
   if (APP.currentMonth < 1) { APP.currentMonth = 12; APP.currentYear--; }
+  loadDeliveries();
+}
+
+function normalizeDate(d) {
+  if (!d) return '';
+  if (typeof d === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(d)) return d;
+  const dt = new Date(d);
+  if (isNaN(dt)) return String(d);
+  return dt.getFullYear() + '-' + String(dt.getMonth()+1).padStart(2,'0') + '-' + String(dt.getDate()).padStart(2,'0');
+}
+
+function loadDeliveries() {
   renderDeliveries();
+  if (!isOnline() || !APP.currentClient) return;
+  gasGet({action:'deliveries', clientId: APP.currentClient.id}).then(d => {
+    if (d && d.deliveries) {
+      const gasDeliveries = d.deliveries.map(item => ({
+        id: item.id,
+        clientId: item.clientId,
+        date: normalizeDate(item.date),
+        name: item.name,
+        qty: parseInt(item.qty) || 1,
+        price: parseInt(item.price) || 0,
+        tax: parseInt(item.tax) || 8
+      }));
+      let all = getAllDeliveries();
+      // このクライアントの既存データを除去し、GASデータで置換
+      const localOnly = all.filter(x => x.clientId !== APP.currentClient.id);
+      // ローカルにしかない未同期データ（d_ prefix）を保持
+      const gasIds = new Set(gasDeliveries.map(x => x.id));
+      const unsyncedLocal = all.filter(x => x.clientId === APP.currentClient.id && x.id.startsWith('d_') && !gasIds.has(x.id));
+      saveAllDeliveries([...localOnly, ...gasDeliveries, ...unsyncedLocal]);
+      renderDeliveries();
+    }
+  });
 }
 
 function renderDeliveries() {
@@ -629,8 +663,14 @@ function saveDelivery() {
   APP.insertBeforeId = null;
   saveAllDeliveries(all);
 
-  // GAS にも保存
-  if (isOnline()) gasPost({action:'saveDelivery', ...d});
+  // GAS にも保存（返却IDでローカル更新）
+  if (isOnline()) gasPost({action:'saveDelivery', ...d}).then(r => {
+    if (r && r.success && r.id && r.id !== d.id) {
+      let updated = getAllDeliveries();
+      const item = updated.find(x => x.id === d.id);
+      if (item) { item.id = r.id; saveAllDeliveries(updated); }
+    }
+  });
 
   closeModal('deliveryModal');
   renderDeliveries();

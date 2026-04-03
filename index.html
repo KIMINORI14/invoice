@@ -1,0 +1,706 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
+<title>請求書発行 - ほっともっと西淀川歌島店</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<style>
+*{box-sizing:border-box;margin:0;padding:0}
+body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif;background:#f0f2f5;color:#333;line-height:1.6}
+
+/* ヘッダー */
+.header{background:#1a73e8;color:#fff;padding:12px 16px;display:flex;align-items:center;justify-content:space-between;position:sticky;top:0;z-index:100}
+.header h1{font-size:16px;font-weight:600}
+.header-btn{background:rgba(255,255,255,.2);color:#fff;border:none;padding:6px 12px;border-radius:6px;font-size:13px;cursor:pointer}
+.back-btn{background:none;border:none;color:#fff;font-size:22px;cursor:pointer;margin-right:8px;padding:0 4px}
+
+/* 画面切替 */
+.screen{display:none;padding:16px;max-width:800px;margin:0 auto}
+.screen.active{display:block}
+
+/* カード */
+.card{background:#fff;border:1px solid #ddd;border-radius:12px;padding:14px 16px;margin-bottom:10px;cursor:pointer;transition:border-color .2s}
+.card:hover{border-color:#1a73e8}
+.card-title{font-size:15px;font-weight:700}
+.card-sub{font-size:13px;color:#888;margin-top:2px}
+.card-amount{font-size:17px;font-weight:700;color:#1a73e8;margin-top:4px}
+
+/* ボタン */
+.btn{display:block;width:100%;padding:14px;border:none;border-radius:10px;font-size:16px;font-weight:600;cursor:pointer;text-align:center;margin-bottom:10px}
+.btn-primary{background:#1a73e8;color:#fff}
+.btn-primary:hover{background:#1557b0}
+.btn-outline{background:#fff;color:#1a73e8;border:2px solid #1a73e8}
+.btn-danger{background:#ff4444;color:#fff}
+.btn-sm{display:inline-block;width:auto;padding:6px 14px;font-size:13px;margin:0}
+
+/* 月切替 */
+.month-nav{display:flex;align-items:center;justify-content:center;gap:16px;padding:12px 0;font-size:16px;font-weight:600}
+.month-nav button{background:none;border:none;font-size:22px;color:#1a73e8;cursor:pointer;padding:0 8px}
+
+/* 納品リスト */
+.delivery-item{display:flex;align-items:center;background:#fff;border:1px solid #eee;border-radius:10px;padding:12px;margin-bottom:8px}
+.delivery-item .di-main{flex:1}
+.delivery-item .di-date{font-size:12px;color:#999}
+.delivery-item .di-name{font-size:14px;font-weight:500}
+.delivery-item .di-amount{font-size:15px;font-weight:700;color:#1a73e8;white-space:nowrap;margin-left:12px}
+.delivery-item .di-actions{display:flex;gap:6px;margin-left:8px}
+.delivery-item .di-actions button{background:none;border:none;font-size:16px;cursor:pointer;padding:4px}
+
+/* 合計バー */
+.total-bar{background:#fff;border:1px solid #ddd;border-radius:10px;padding:12px 16px;margin:12px 0;display:flex;justify-content:space-between;align-items:center;font-size:15px}
+.total-bar .total-amount{font-size:20px;font-weight:700;color:#1a73e8}
+
+/* モーダル */
+.modal-overlay{position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(0,0,0,.5);display:flex;align-items:flex-end;justify-content:center;z-index:200}
+.modal{background:#fff;border-radius:16px 16px 0 0;padding:20px;width:100%;max-width:500px;max-height:85vh;overflow-y:auto}
+.modal h3{margin-bottom:16px;font-size:17px}
+.form-group{margin-bottom:14px}
+.form-group label{display:block;font-size:13px;font-weight:600;color:#555;margin-bottom:4px}
+.form-group input,.form-group select,.form-group textarea{width:100%;padding:10px 12px;border:1px solid #ccc;border-radius:8px;font-size:16px;-webkit-appearance:none}
+.form-row{display:flex;gap:8px}
+.form-row .form-group{flex:1}
+.modal-actions{display:flex;gap:8px;margin-top:16px}
+.modal-actions button{flex:1;padding:12px;border-radius:10px;font-size:15px;font-weight:600;cursor:pointer}
+.modal-cancel{background:#eee;border:none;color:#333}
+.modal-ok{background:#1a73e8;border:none;color:#fff}
+
+/* 設定 */
+.setting-section{background:#fff;border:1px solid #ddd;border-radius:10px;padding:16px;margin-bottom:16px}
+.setting-section h3{font-size:14px;margin-bottom:8px}
+.setting-section p{font-size:12px;color:#666;margin-bottom:8px}
+.gas-input{display:flex;gap:8px}
+.gas-input input{flex:1}
+.status-badge{display:inline-block;padding:2px 8px;border-radius:10px;font-size:12px;font-weight:600}
+.status-badge.on{background:#e6f4ea;color:#1e8e3e}
+.status-badge.off{background:#fce8e6;color:#d93025}
+
+/* ===== 請求書プレビュー ===== */
+.preview-wrap{background:#fff;padding:16px;border-radius:10px;overflow-x:auto}
+#invoicePreview{width:210mm;min-height:297mm;padding:15mm 20mm 20mm;background:#fff;font-family:'Hiragino Mincho ProN','Yu Mincho','MS PMincho',serif;font-size:10.5pt;color:#000;line-height:1.6;position:relative}
+.inv-date{text-align:right;font-size:10pt}
+.inv-number{text-align:right;font-size:10pt;margin-bottom:20px}
+.inv-title{text-align:center;font-size:22pt;font-weight:700;margin:20px 0 30px;letter-spacing:8px}
+.inv-header{display:flex;justify-content:space-between;margin-bottom:20px}
+.inv-left{flex:1;padding-right:20px}
+.inv-right{width:250px;position:relative}
+.inv-client{font-size:12pt;font-weight:700;border-bottom:1px solid #000;padding-bottom:4px;margin-bottom:12px;white-space:nowrap;overflow:visible}
+.inv-subject{margin-bottom:8px;font-size:10pt}
+.inv-intro{font-size:10pt;margin-bottom:16px}
+.inv-total-display{font-size:16pt;font-weight:700;margin-bottom:8px}
+.inv-total-display span{border-bottom:1px solid #000;padding-bottom:2px}
+.inv-company-name{font-size:10pt;font-weight:600}
+.inv-company-detail{font-size:9pt;line-height:1.5}
+
+/* 会社印（サンプル準拠の角印） */
+.seal{position:absolute;top:0;right:0;width:60px;height:60px;border:2.5px solid #cc0000;border-radius:2px;display:grid;grid-template-columns:1fr 1fr;direction:rtl;padding:3px 2px;opacity:.85}
+.seal-col{display:flex;flex-direction:column;align-items:center;justify-content:space-between;writing-mode:vertical-rl;text-orientation:upright;color:#cc0000;font-family:'Hiragino Mincho ProN','Yu Mincho',serif;font-weight:900;font-size:12px;line-height:1;letter-spacing:0}
+
+/* 明細テーブル */
+.inv-table{width:100%;border-collapse:collapse;margin:20px 0 10px;font-size:9.5pt}
+.inv-table th{background:#f5f5f5;border:1px solid #999;padding:6px 8px;font-weight:600;text-align:center}
+.inv-table td{border:1px solid #999;padding:6px 8px}
+.col-name{width:55%;text-align:left}.col-mark{width:3%;text-align:center}.col-qty{width:10%;text-align:center}.col-price{width:16%;text-align:right}.col-amount{width:16%;text-align:right}
+.empty-row td{height:24px}
+.inv-summary{display:flex;justify-content:space-between;margin-top:10px}
+.inv-summary-left{font-size:9pt}
+.inv-summary-table{border-collapse:collapse;font-size:9.5pt}
+.inv-summary-table td{padding:4px 12px;border:1px solid #999}
+.inv-summary-table .label{text-align:left}
+.inv-summary-table .value{text-align:right;min-width:100px}
+.inv-notes{margin-top:30px;font-size:9pt;line-height:1.8}
+.inv-bank{margin-top:10px;font-size:9pt;line-height:1.8}
+
+/* レスポンシブ */
+@media(max-width:600px){
+  .form-row{flex-direction:column;gap:0}
+  .preview-wrap{padding:8px}
+  #invoicePreview{transform:scale(0.45);transform-origin:top left}
+  .preview-wrap{height:calc(297mm * 0.45 + 20px);overflow:hidden}
+}
+@media(min-width:601px) and (max-width:900px){
+  #invoicePreview{transform:scale(0.65);transform-origin:top left}
+  .preview-wrap{height:calc(297mm * 0.65 + 20px);overflow:hidden}
+}
+.empty-msg{text-align:center;color:#999;padding:40px 0;font-size:14px}
+</style>
+</head>
+<body>
+
+<!-- ヘッダー -->
+<div class="header" id="appHeader">
+  <div style="display:flex;align-items:center">
+    <button class="back-btn" id="backBtn" style="display:none" onclick="goBack()">&larr;</button>
+    <h1 id="headerTitle">請求書発行</h1>
+  </div>
+  <button class="header-btn" id="settingsBtn" onclick="showScreen('settings')">設定</button>
+</div>
+
+<!-- ===== 画面1: 得意先一覧 ===== -->
+<div id="screen-home" class="screen active">
+  <div id="clientCards"></div>
+  <button class="btn btn-outline" onclick="openClientModal()">+ 得意先を追加</button>
+</div>
+
+<!-- ===== 画面2: 得意先詳細（納品記録） ===== -->
+<div id="screen-client" class="screen">
+  <div class="month-nav">
+    <button onclick="changeMonth(-1)">&lt;</button>
+    <span id="monthLabel">2026年4月</span>
+    <button onclick="changeMonth(1)">&gt;</button>
+  </div>
+  <div id="deliveryList"></div>
+  <div class="total-bar">
+    <span>当月合計</span>
+    <span class="total-amount" id="monthTotal">¥ 0</span>
+  </div>
+  <button class="btn btn-primary" onclick="openDeliveryModal()">+ 納品を追加</button>
+  <button class="btn btn-outline" onclick="generateInvoice()">請求書を発行</button>
+</div>
+
+<!-- ===== 画面3: プレビュー ===== -->
+<div id="screen-preview" class="screen">
+  <button class="btn btn-primary" onclick="downloadPDF()">PDF ダウンロード</button>
+  <div class="preview-wrap">
+    <div id="invoicePreview"></div>
+  </div>
+</div>
+
+<!-- ===== 設定画面 ===== -->
+<div id="screen-settings" class="screen">
+  <div class="setting-section">
+    <h3>Google Apps Script 接続設定</h3>
+    <p>デプロイURLを入力。未設定時はオフラインモード。</p>
+    <div style="margin-bottom:8px">接続: <span id="connStatus" class="status-badge off">未接続</span></div>
+    <div class="gas-input">
+      <input type="url" id="gasUrl" placeholder="https://script.google.com/macros/s/.../exec">
+      <button class="btn-sm btn-primary" onclick="saveGasUrl()">保存</button>
+    </div>
+  </div>
+  <div class="setting-section">
+    <h3>得意先管理</h3>
+    <div id="clientManageList"></div>
+    <button class="btn btn-outline" style="margin-top:12px" onclick="openClientModal()">+ 得意先を追加</button>
+  </div>
+</div>
+
+<!-- 得意先追加モーダル -->
+<div id="clientModal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeModal('clientModal')">
+  <div class="modal">
+    <h3>得意先を追加</h3>
+    <div class="form-group">
+      <label>会社名</label>
+      <input type="text" id="newClientName" placeholder="例: 株式会社サンゲツ 関西ロジスティクスセンター">
+    </div>
+    <div class="modal-actions">
+      <button class="modal-cancel" onclick="closeModal('clientModal')">キャンセル</button>
+      <button class="modal-ok" onclick="addClient()">追加</button>
+    </div>
+  </div>
+</div>
+
+<!-- 納品入力モーダル -->
+<div id="deliveryModal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeModal('deliveryModal')">
+  <div class="modal">
+    <h3 id="deliveryModalTitle">納品を追加</h3>
+    <input type="hidden" id="editDeliveryId">
+    <label style="display:flex;align-items:center;gap:8px;margin-bottom:14px;cursor:pointer;font-size:14px;font-weight:600;color:#1a73e8">
+      <input type="checkbox" id="dlvAutoFill" onchange="toggleAutoFill()" style="width:20px;height:20px;accent-color:#1a73e8"> お弁当代で自動入力
+    </label>
+    <div class="form-group">
+      <label>納品日</label>
+      <input type="date" id="dlvDate">
+    </div>
+    <div class="form-group" id="dlvNameGroup">
+      <label>品名</label>
+      <input type="text" id="dlvName" placeholder="例: 弁当（配達）">
+    </div>
+    <div class="form-row">
+      <div class="form-group">
+        <label>数量</label>
+        <input type="number" id="dlvQty" value="1" min="1" inputmode="numeric">
+      </div>
+      <div class="form-group">
+        <label>単価</label>
+        <input type="number" id="dlvPrice" value="" min="0" inputmode="numeric" placeholder="金額">
+      </div>
+      <div class="form-group" id="dlvTaxGroup">
+        <label>税率</label>
+        <select id="dlvTax">
+          <option value="8" selected>軽減8%</option>
+          <option value="10">10%</option>
+        </select>
+      </div>
+    </div>
+    <div class="modal-actions">
+      <button class="modal-cancel" onclick="closeModal('deliveryModal')">キャンセル</button>
+      <button class="modal-ok" onclick="saveDelivery()">保存</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// 状態管理
+// ============================================================
+const APP = {
+  clients: [],       // [{id, name}]
+  deliveries: [],    // [{id, clientId, date, name, qty, price, tax}]
+  currentClient: null,
+  currentYear: new Date().getFullYear(),
+  currentMonth: new Date().getMonth() + 1,
+  gasUrl: localStorage.getItem('gasUrl') || '',
+  screenStack: ['home']
+};
+
+// ============================================================
+// 初期化
+// ============================================================
+document.addEventListener('DOMContentLoaded', () => {
+  document.getElementById('gasUrl').value = APP.gasUrl;
+  updateConnStatus();
+  loadClients();
+});
+
+// ============================================================
+// 画面遷移
+// ============================================================
+function showScreen(name, pushStack = true) {
+  document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+  document.getElementById('screen-' + name).classList.add('active');
+
+  const back = document.getElementById('backBtn');
+  const title = document.getElementById('headerTitle');
+  const settings = document.getElementById('settingsBtn');
+
+  if (name === 'home') {
+    back.style.display = 'none';
+    title.textContent = '請求書発行';
+    settings.style.display = '';
+    APP.screenStack = ['home'];
+  } else {
+    back.style.display = '';
+    settings.style.display = name === 'settings' ? 'none' : '';
+    if (pushStack) APP.screenStack.push(name);
+
+    if (name === 'client') title.textContent = APP.currentClient ? APP.currentClient.name : '';
+    else if (name === 'preview') title.textContent = '請求書プレビュー';
+    else if (name === 'settings') title.textContent = '設定';
+  }
+}
+
+function goBack() {
+  APP.screenStack.pop();
+  const prev = APP.screenStack[APP.screenStack.length - 1] || 'home';
+  showScreen(prev, false);
+}
+
+// ============================================================
+// GAS通信
+// ============================================================
+function isOnline() { return !!APP.gasUrl; }
+
+async function gasGet(params) {
+  if (!isOnline()) return null;
+  const url = new URL(APP.gasUrl);
+  Object.keys(params).forEach(k => url.searchParams.append(k, params[k]));
+  try { const r = await fetch(url); return await r.json(); } catch(e) { console.error(e); return null; }
+}
+
+async function gasPost(data) {
+  if (!isOnline()) return null;
+  try { const r = await fetch(APP.gasUrl, { method:'POST', headers:{'Content-Type':'text/plain'}, body:JSON.stringify(data) }); return await r.json(); } catch(e) { console.error(e); return null; }
+}
+
+function saveGasUrl() {
+  APP.gasUrl = document.getElementById('gasUrl').value.trim();
+  localStorage.setItem('gasUrl', APP.gasUrl);
+  updateConnStatus();
+  if (isOnline()) { loadClients(); alert('保存しました'); }
+}
+
+function updateConnStatus() {
+  const b = document.getElementById('connStatus');
+  if (isOnline()) { b.textContent = '接続済み'; b.className = 'status-badge on'; }
+  else { b.textContent = '未接続'; b.className = 'status-badge off'; }
+}
+
+// ============================================================
+// 得意先管理
+// ============================================================
+async function loadClients() {
+  if (isOnline()) {
+    const d = await gasGet({action:'clients'});
+    if (d && d.clients) { APP.clients = d.clients; localStorage.setItem('clients', JSON.stringify(APP.clients)); }
+  } else {
+    APP.clients = JSON.parse(localStorage.getItem('clients') || '[]');
+  }
+  renderHome();
+}
+
+function renderHome() {
+  const deliveries = getAllDeliveries();
+  const now = new Date();
+  const ym = now.getFullYear() * 100 + now.getMonth() + 1;
+
+  const html = APP.clients.map(c => {
+    const monthDlvs = deliveries.filter(d => {
+      if (d.clientId !== c.id) return false;
+      const dt = new Date(d.date);
+      return (dt.getFullYear() * 100 + dt.getMonth() + 1) === ym;
+    });
+    const total = monthDlvs.reduce((s, d) => s + d.qty * d.price, 0);
+    const count = monthDlvs.length;
+    return '<div class="card" onclick="openClient(\'' + c.id + '\')">' +
+      '<div class="card-title">' + esc(c.name) + '</div>' +
+      '<div class="card-sub">今月: ' + count + '件</div>' +
+      (total > 0 ? '<div class="card-amount">¥ ' + total.toLocaleString() + '</div>' : '') +
+      '</div>';
+  }).join('');
+
+  document.getElementById('clientCards').innerHTML = html || '<div class="empty-msg">得意先を追加してください</div>';
+}
+
+function openClientModal() {
+  document.getElementById('newClientName').value = '';
+  document.getElementById('clientModal').style.display = 'flex';
+  document.getElementById('newClientName').focus();
+}
+
+async function addClient() {
+  const name = document.getElementById('newClientName').value.trim();
+  if (!name) return;
+  const id = isOnline() ? null : 'c_' + Date.now();
+  if (isOnline()) {
+    const r = await gasPost({action:'addClient', name});
+    if (r && r.success) APP.clients.push({id:r.id, name});
+  } else {
+    APP.clients.push({id, name});
+  }
+  localStorage.setItem('clients', JSON.stringify(APP.clients));
+  closeModal('clientModal');
+  renderHome();
+  renderClientManage();
+}
+
+async function deleteClient(id) {
+  if (!confirm('この得意先を削除しますか？')) return;
+  if (isOnline()) await gasPost({action:'deleteClient', id});
+  APP.clients = APP.clients.filter(c => c.id !== id);
+  localStorage.setItem('clients', JSON.stringify(APP.clients));
+  renderHome();
+  renderClientManage();
+}
+
+function renderClientManage() {
+  const div = document.getElementById('clientManageList');
+  if (!APP.clients.length) { div.innerHTML = '<p style="color:#999;font-size:13px">得意先なし</p>'; return; }
+  div.innerHTML = APP.clients.map(c =>
+    '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #eee">' +
+    '<span style="font-size:14px">' + esc(c.name) + '</span>' +
+    '<button class="btn-sm btn-danger" onclick="deleteClient(\'' + c.id + '\')">削除</button></div>'
+  ).join('');
+}
+
+// ============================================================
+// 得意先詳細画面
+// ============================================================
+function openClient(id) {
+  APP.currentClient = APP.clients.find(c => c.id === id);
+  if (!APP.currentClient) return;
+  APP.currentYear = new Date().getFullYear();
+  APP.currentMonth = new Date().getMonth() + 1;
+  showScreen('client');
+  renderDeliveries();
+}
+
+function changeMonth(delta) {
+  APP.currentMonth += delta;
+  if (APP.currentMonth > 12) { APP.currentMonth = 1; APP.currentYear++; }
+  if (APP.currentMonth < 1) { APP.currentMonth = 12; APP.currentYear--; }
+  renderDeliveries();
+}
+
+function renderDeliveries() {
+  document.getElementById('monthLabel', APP.currentYear + '年' + APP.currentMonth + '月');
+  document.getElementById('monthLabel').textContent = APP.currentYear + '年' + APP.currentMonth + '月';
+
+  const all = getClientMonthDeliveries();
+  all.sort((a, b) => a.date.localeCompare(b.date));
+
+  if (!all.length) {
+    document.getElementById('deliveryList').innerHTML = '<div class="empty-msg">この月の納品記録はありません</div>';
+    document.getElementById('monthTotal').textContent = '¥ 0';
+    return;
+  }
+
+  let total = 0;
+  const html = all.map(d => {
+    const amt = d.qty * d.price;
+    total += amt;
+    const dateStr = d.date.replace(/(\d{4})-(\d{2})-(\d{2})/, '$2/$3');
+    return '<div class="delivery-item">' +
+      '<div class="di-main">' +
+      '<div class="di-date">' + dateStr + '</div>' +
+      '<div class="di-name">' + esc(d.name) + (d.tax === 8 ? ' ※' : '') + '</div>' +
+      '</div>' +
+      '<div class="di-amount">¥ ' + amt.toLocaleString() + '</div>' +
+      '<div class="di-actions">' +
+      '<button onclick="editDelivery(\'' + d.id + '\')" title="編集">&#9998;</button>' +
+      '<button onclick="deleteDelivery(\'' + d.id + '\')" title="削除" style="color:#ff4444">&#10005;</button>' +
+      '</div></div>';
+  }).join('');
+
+  document.getElementById('deliveryList').innerHTML = html;
+  document.getElementById('monthTotal').textContent = '¥ ' + total.toLocaleString();
+}
+
+function getClientMonthDeliveries() {
+  if (!APP.currentClient) return [];
+  const all = getAllDeliveries();
+  return all.filter(d => {
+    if (d.clientId !== APP.currentClient.id) return false;
+    const dt = new Date(d.date);
+    return dt.getFullYear() === APP.currentYear && dt.getMonth() + 1 === APP.currentMonth;
+  });
+}
+
+// ============================================================
+// 納品記録 CRUD
+// ============================================================
+function getAllDeliveries() {
+  return JSON.parse(localStorage.getItem('deliveries') || '[]');
+}
+
+function saveAllDeliveries(list) {
+  localStorage.setItem('deliveries', JSON.stringify(list));
+}
+
+function openDeliveryModal(editId) {
+  document.getElementById('editDeliveryId').value = '';
+  document.getElementById('deliveryModalTitle').textContent = '納品を追加';
+  document.getElementById('dlvDate').value = APP.currentYear + '-' + String(APP.currentMonth).padStart(2,'0') + '-' + String(new Date().getDate()).padStart(2,'0');
+  document.getElementById('dlvName').value = '';
+  document.getElementById('dlvQty').value = '1';
+  document.getElementById('dlvPrice').value = '';
+  document.getElementById('dlvTax').value = '8';
+  // 自動入力チェック状態を復元
+  const autoFill = localStorage.getItem('autoFill') === '1';
+  document.getElementById('dlvAutoFill').checked = autoFill;
+  if (autoFill) applyAutoFill();
+  document.getElementById('deliveryModal').style.display = 'flex';
+  if (autoFill) document.getElementById('dlvPrice').focus();
+  else document.getElementById('dlvName').focus();
+}
+
+function toggleAutoFill() {
+  const checked = document.getElementById('dlvAutoFill').checked;
+  localStorage.setItem('autoFill', checked ? '1' : '0');
+  if (checked) {
+    applyAutoFill();
+    document.getElementById('dlvPrice').focus();
+  } else {
+    document.getElementById('dlvName').value = '';
+    document.getElementById('dlvName').readOnly = false;
+    document.getElementById('dlvName').style.background = '';
+    document.getElementById('dlvTax').disabled = false;
+    document.getElementById('dlvQty').value = '1';
+  }
+}
+
+function applyAutoFill() {
+  document.getElementById('dlvName').value = '弁当（配達）';
+  document.getElementById('dlvName').readOnly = true;
+  document.getElementById('dlvName').style.background = '#f0f0f0';
+  document.getElementById('dlvTax').value = '8';
+  document.getElementById('dlvTax').disabled = true;
+  document.getElementById('dlvQty').value = '1';
+}
+
+function editDelivery(id) {
+  const all = getAllDeliveries();
+  const d = all.find(x => x.id === id);
+  if (!d) return;
+  document.getElementById('editDeliveryId').value = id;
+  document.getElementById('deliveryModalTitle').textContent = '納品を編集';
+  document.getElementById('dlvAutoFill').checked = false;
+  document.getElementById('dlvName').readOnly = false;
+  document.getElementById('dlvName').style.background = '';
+  document.getElementById('dlvTax').disabled = false;
+  document.getElementById('dlvDate').value = d.date;
+  document.getElementById('dlvName').value = d.name;
+  document.getElementById('dlvQty').value = d.qty;
+  document.getElementById('dlvPrice').value = d.price;
+  document.getElementById('dlvTax').value = String(d.tax);
+  document.getElementById('deliveryModal').style.display = 'flex';
+}
+
+function saveDelivery() {
+  const editId = document.getElementById('editDeliveryId').value;
+  const d = {
+    id: editId || 'd_' + Date.now(),
+    clientId: APP.currentClient.id,
+    date: document.getElementById('dlvDate').value,
+    name: document.getElementById('dlvName').value.trim(),
+    qty: parseInt(document.getElementById('dlvQty').value) || 1,
+    price: parseInt(document.getElementById('dlvPrice').value) || 0,
+    tax: document.getElementById('dlvAutoFill').checked ? 8 : parseInt(document.getElementById('dlvTax').value)
+  };
+  if (!d.name) { alert('品名を入力してください'); return; }
+  if (!d.price) { alert('単価を入力してください'); return; }
+
+  let all = getAllDeliveries();
+  if (editId) {
+    const idx = all.findIndex(x => x.id === editId);
+    if (idx >= 0) all[idx] = d;
+  } else {
+    all.push(d);
+  }
+  saveAllDeliveries(all);
+
+  // GAS にも保存
+  if (isOnline()) gasPost({action:'saveDelivery', ...d});
+
+  closeModal('deliveryModal');
+  renderDeliveries();
+  renderHome();
+}
+
+function deleteDelivery(id) {
+  if (!confirm('この納品記録を削除しますか？')) return;
+  let all = getAllDeliveries();
+  all = all.filter(x => x.id !== id);
+  saveAllDeliveries(all);
+  if (isOnline()) gasPost({action:'deleteDelivery', id});
+  renderDeliveries();
+  renderHome();
+}
+
+// ============================================================
+// 請求書生成
+// ============================================================
+function generateInvoice() {
+  const items = getClientMonthDeliveries();
+  if (!items.length) { alert('この月の納品記録がありません'); return; }
+
+  items.sort((a, b) => a.date.localeCompare(b.date));
+
+  const client = APP.currentClient.name;
+  const y = APP.currentYear;
+  const m = APP.currentMonth;
+  const dateStr = y + '年' + String(m + 1 > 12 ? 1 : m + 1).padStart(2,'0') + '月01日';
+  // 請求日は翌月1日
+  let invYear = y, invMonth = m + 1;
+  if (invMonth > 12) { invMonth = 1; invYear++; }
+  const invDateStr = invYear + '年' + String(invMonth).padStart(2,'0') + '月01日';
+  const invNumPrefix = String(invYear) + String(invMonth).padStart(2,'0') + '01';
+  // 連番を自動採番（発行済み番号から最大値+1）
+  const issued = JSON.parse(localStorage.getItem('issuedNumbers') || '[]');
+  let maxSeq = 0;
+  issued.forEach(n => { if (n.startsWith(invNumPrefix + '-')) { const s = parseInt(n.split('-')[1],10); if (s > maxSeq) maxSeq = s; }});
+  const invNumber = invNumPrefix + '-' + String(maxSeq + 1).padStart(3, '0');
+  // 発行済みとして記録
+  issued.push(invNumber);
+  localStorage.setItem('issuedNumbers', JSON.stringify(issued));
+
+  const subject = m + '月納品分ご請求/お弁当代';
+
+  // 集計
+  let subtotal = 0;
+  const taxGroups = {};
+  items.forEach(d => {
+    const amt = d.qty * d.price;
+    subtotal += amt;
+    if (!taxGroups[d.tax]) taxGroups[d.tax] = 0;
+    taxGroups[d.tax] += amt;
+  });
+
+  const hasReduced = items.some(d => d.tax === 8);
+
+  // 明細行
+  let rows = items.map(d => {
+    const amt = d.qty * d.price;
+    const dateLabel = d.date.replace(/(\d{4})-(\d{2})-(\d{2})/, '$1/$2/$3');
+    const mark = d.tax === 8 ? '※' : '';
+    return '<tr><td class="col-name">[' + dateLabel + ' 納品分] ' + esc(d.name) + '</td>' +
+      '<td class="col-mark">' + mark + '</td>' +
+      '<td class="col-qty">' + d.qty.toLocaleString() + '</td>' +
+      '<td class="col-price">' + d.price.toLocaleString() + '</td>' +
+      '<td class="col-amount">' + amt.toLocaleString() + '</td></tr>';
+  }).join('');
+
+  for (let i = items.length; i < 8; i++) {
+    rows += '<tr class="empty-row"><td></td><td></td><td></td><td></td><td></td></tr>';
+  }
+
+  // 税内訳
+  let taxRows = '';
+  Object.keys(taxGroups).sort().forEach(rate => {
+    const taxAmt = Math.floor(taxGroups[rate] * parseInt(rate) / (100 + parseInt(rate)));
+    const label = rate === '8' ? '消費税 (軽減8% 内税)' : '消費税 (10% 内税)';
+    taxRows += '<tr><td class="label">' + label + '</td><td class="value">(' + taxAmt.toLocaleString() + ')</td></tr>';
+  });
+
+  document.getElementById('invoicePreview').innerHTML =
+    '<div class="inv-date">' + invDateStr + '</div>' +
+    '<div class="inv-number">請求番号: ' + invNumber + '</div>' +
+    '<div class="inv-title">請 求 書</div>' +
+    '<div class="inv-header">' +
+    '<div class="inv-left">' +
+    '<div class="inv-client">' + esc(client) + ' 御中</div>' +
+    '<div class="inv-subject">件名 : ' + esc(subject) + '</div>' +
+    '<div class="inv-intro">下記のとおりご請求申し上げます。</div>' +
+    '<div class="inv-total-display">ご請求金額 <span>¥ ' + subtotal.toLocaleString() + ' -</span></div>' +
+    '</div>' +
+    '<div class="inv-right">' +
+    '<div class="inv-company-name">株式会社フィプロ</div>' +
+    '<div class="inv-company-name">ほっともっと西淀川歌島店</div>' +
+    '<div class="inv-company-detail">' +
+    '〒555-0021<br>大阪府大阪市西淀川区歌島<br>2-3-8<br><br>' +
+    'TEL: 06-6476-1131<br>FAX: 06-7668-1135<br>登録番号: T4290001066306</div>' +
+    '<div class="seal">' +
+    '<div class="seal-col">株式会社</div>' +
+    '<div class="seal-col">フィプロ</div>' +
+    '</div>' +
+    '</div></div>' +
+    '<table class="inv-table"><thead><tr>' +
+    '<th class="col-name">品番・品名</th><th class="col-mark"></th>' +
+    '<th class="col-qty">数量</th><th class="col-price">単価</th><th class="col-amount">金額</th>' +
+    '</tr></thead><tbody>' + rows + '</tbody></table>' +
+    '<div class="inv-summary">' +
+    '<div class="inv-summary-left">' + (hasReduced ? '<p>※は軽減税率対象です。</p>' : '') + '</div>' +
+    '<table class="inv-summary-table">' +
+    '<tr><td class="label">小計</td><td class="value">' + subtotal.toLocaleString() + '</td></tr>' +
+    taxRows +
+    '<tr style="font-weight:700"><td class="label">合計</td><td class="value">' + subtotal.toLocaleString() + '</td></tr>' +
+    '</table></div>' +
+    '<div class="inv-notes">日毎の弁当内容につきましては、納品書にてご確認ください。<br>' +
+    '恐れ入りますが、振込手数料はお客様のご負担でお願いいたします。</div>' +
+    '<div class="inv-bank"><strong>お振込先：</strong><br>' +
+    '三菱UFJ銀行 福岡中央支店 （普）0043573 株式会社プレナス</div>';
+
+  showScreen('preview');
+}
+
+// ============================================================
+// PDF
+// ============================================================
+function downloadPDF() {
+  const el = document.getElementById('invoicePreview');
+  html2pdf().set({
+    margin: 0,
+    filename: 'invoice.pdf',
+    image: {type:'jpeg', quality:0.98},
+    html2canvas: {scale:2, useCORS:true},
+    jsPDF: {unit:'mm', format:'a4', orientation:'portrait'}
+  }).from(el).save();
+}
+
+// ============================================================
+// ユーティリティ
+// ============================================================
+function closeModal(id) { document.getElementById(id).style.display = 'none'; }
+function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+</script>
+</body>
+</html>

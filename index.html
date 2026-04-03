@@ -46,6 +46,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Kaku Gothic ProN','N
 .delivery-item .di-amount{font-size:15px;font-weight:700;color:#1a73e8;white-space:nowrap;margin-left:12px}
 .delivery-item .di-actions{display:flex;gap:6px;margin-left:8px}
 .delivery-item .di-actions button{background:none;border:none;font-size:16px;cursor:pointer;padding:4px}
+.insert-btn-wrap{text-align:center;height:6px;position:relative;z-index:10;margin:-2px 0}
+.insert-btn{background:none;border:none;color:transparent;font-size:12px;cursor:pointer;padding:0 16px;line-height:1;transition:color .15s;position:relative;top:-4px}
+.insert-btn-wrap:hover .insert-btn,.insert-btn:active{color:#1a73e8}
+.delivery-item:first-child{margin-top:0}
 
 /* 合計バー */
 .total-bar{background:#fff;border:1px solid #ddd;border-radius:10px;padding:12px 16px;margin:12px 0;display:flex;justify-content:space-between;align-items:center;font-size:15px}
@@ -195,7 +199,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Kaku Gothic ProN','N
     <span>当月合計</span>
     <span class="total-amount" id="monthTotal">¥ 0</span>
   </div>
-  <button class="btn btn-primary" onclick="openDeliveryModal()">+ 納品を追加</button>
+  <button class="btn btn-primary" onclick="APP.insertBeforeId=null;openDeliveryModal()">+ 納品を追加</button>
   <button class="btn btn-outline" onclick="generateInvoice()">請求書を発行</button>
 </div>
 
@@ -484,11 +488,14 @@ function renderDeliveries() {
   }
 
   let total = 0;
-  const html = all.map(d => {
+  const html = all.map((d, idx) => {
     const amt = d.qty * d.price;
     total += amt;
     const dateStr = d.date.replace(/(\d{4})-(\d{2})-(\d{2})/, '$2/$3');
-    return '<div class="delivery-item">' +
+    const insertBtn = '<div class="insert-btn-wrap">' +
+      '<button class="insert-btn" onclick="openDeliveryModalAt(' + idx + ')" title="ここに追加">＋</button></div>';
+    return insertBtn +
+      '<div class="delivery-item">' +
       '<div class="di-main">' +
       '<div class="di-date">' + dateStr + '</div>' +
       '<div class="di-name">' + esc(d.name) + (d.tax === 8 ? ' ※' : '') + '</div>' +
@@ -525,9 +532,19 @@ function saveAllDeliveries(list) {
   localStorage.setItem('deliveries', JSON.stringify(list));
 }
 
+function openDeliveryModalAt(idx) {
+  const items = getClientMonthDeliveries();
+  items.sort((a, b) => a.date.localeCompare(b.date));
+  const ref = items[idx];
+  APP.insertBeforeId = ref ? ref.id : null;
+  openDeliveryModal();
+  if (ref) document.getElementById('dlvDate').value = ref.date;
+}
+
 function openDeliveryModal(editId) {
+  if (!editId) APP.insertBeforeId = APP.insertBeforeId || null;
   document.getElementById('editDeliveryId').value = '';
-  document.getElementById('deliveryModalTitle').textContent = '納品を追加';
+  document.getElementById('deliveryModalTitle').textContent = APP.insertBeforeId ? '納品を挿入' : '納品を追加';
   document.getElementById('dlvDate').value = APP.currentYear + '-' + String(APP.currentMonth).padStart(2,'0') + '-' + String(new Date().getDate()).padStart(2,'0');
   document.getElementById('dlvName').value = '';
   document.getElementById('dlvQty').value = '1';
@@ -602,9 +619,14 @@ function saveDelivery() {
   if (editId) {
     const idx = all.findIndex(x => x.id === editId);
     if (idx >= 0) all[idx] = d;
+  } else if (APP.insertBeforeId) {
+    const idx = all.findIndex(x => x.id === APP.insertBeforeId);
+    if (idx >= 0) all.splice(idx, 0, d);
+    else all.push(d);
   } else {
     all.push(d);
   }
+  APP.insertBeforeId = null;
   saveAllDeliveries(all);
 
   // GAS にも保存

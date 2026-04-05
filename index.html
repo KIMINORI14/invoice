@@ -874,6 +874,13 @@ function cancelInvoice() {
 // ============================================================
 function downloadPDF() {
   const el = document.getElementById('invoicePreview');
+  const wrap = el.closest('.preview-wrap');
+  // スマホ表示のscale変換を一時解除
+  const origTransform = el.style.transform;
+  const origWrapHeight = wrap ? wrap.style.height : '';
+  el.style.transform = 'none';
+  if (wrap) wrap.style.height = 'auto';
+
   html2pdf().set({
     margin: [0, 0, 0, 0],
     filename: 'invoice.pdf',
@@ -881,7 +888,11 @@ function downloadPDF() {
     html2canvas: {scale:2, useCORS:true},
     jsPDF: {unit:'mm', format:'a4', orientation:'portrait'},
     pagebreak: {mode: ['css', 'legacy'], avoid: ['.inv-summary', '.inv-notes', '.inv-bank']}
-  }).from(el).save();
+  }).from(el).save().then(function() {
+    // 元に戻す
+    el.style.transform = origTransform;
+    if (wrap) wrap.style.height = origWrapHeight;
+  });
 }
 
 // ============================================================

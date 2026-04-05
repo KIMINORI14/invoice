@@ -4,7 +4,8 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0">
 <title>請求書発行 - ほっともっと西淀川歌島店</title>
-<script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif;background:#f0f2f5;color:#333;line-height:1.6}
@@ -875,23 +876,33 @@ function cancelInvoice() {
 function downloadPDF() {
   const el = document.getElementById('invoicePreview');
   const wrap = el.closest('.preview-wrap');
-  // スマホ表示のscale変換を一時解除
-  const origTransform = el.style.transform;
-  const origWrapHeight = wrap ? wrap.style.height : '';
+
+  // 元のスタイルを保存
+  const origStyle = el.getAttribute('style') || '';
+  const origWrapH = wrap ? wrap.style.height : '';
+
+  // スマホのscale変換を解除、min-heightも解除
   el.style.transform = 'none';
+  el.style.minHeight = 'auto';
   if (wrap) wrap.style.height = 'auto';
 
-  html2pdf().set({
-    margin: [0, 0, 0, 0],
-    filename: 'invoice.pdf',
-    image: {type:'jpeg', quality:0.98},
-    html2canvas: {scale:2, useCORS:true},
-    jsPDF: {unit:'mm', format:'a4', orientation:'portrait'},
-    pagebreak: {mode: ['css', 'legacy'], avoid: ['.inv-summary', '.inv-notes', '.inv-bank']}
-  }).from(el).save().then(function() {
+  // html2canvasでキャプチャ → jsPDFでA4 1ページに収める
+  html2canvas(el, {scale:2, useCORS:true, backgroundColor:'#ffffff'}).then(function(canvas) {
+    const pdf = new jspdf.jsPDF({unit:'mm', format:'a4', orientation:'portrait'});
+    const a4W = 210, a4H = 297;
+    const imgW = canvas.width, imgH = canvas.height;
+
+    // A4に収まるようスケール計算（縦横比維持）
+    const scale = Math.min(a4W / (imgW / 2), a4H / (imgH / 2));
+    const pdfW = (imgW / 2) * scale;
+    const pdfH = (imgH / 2) * scale;
+
+    pdf.addImage(canvas.toDataURL('image/jpeg', 0.98), 'JPEG', 0, 0, pdfW, pdfH);
+    pdf.save('invoice.pdf');
+
     // 元に戻す
-    el.style.transform = origTransform;
-    if (wrap) wrap.style.height = origWrapHeight;
+    el.setAttribute('style', origStyle);
+    if (wrap) wrap.style.height = origWrapH;
   });
 }
 

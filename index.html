@@ -296,7 +296,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Kaku Gothic ProN','N
     </div>
   </div>
   <div style="text-align:center;padding:16px 0;color:#aaa;font-size:12px">
-    バージョン: <span id="appVersion">2.2.2</span> (2026-04-11)
+    バージョン: <span id="appVersion">2.2.3</span> (2026-04-11)
   </div>
 </div>
 
@@ -1326,7 +1326,7 @@ function exportData() {
     if (p) clientPresets[c.id] = JSON.parse(p);
   });
   const data = {
-    version: '2.2.1',
+    version: '2.2.3',
     exportedAt: new Date().toISOString(),
     clients: clients,
     deliveries: JSON.parse(localStorage.getItem('deliveries') || '[]'),
@@ -1532,11 +1532,18 @@ function renderChart(clientId) {
     // 全得意先を色分け積み上げ
     datasets = APP.clients.map((c, ci) => {
       const data = monthKeys.map(({y, m}) => {
-        return deliveries.filter(d => {
+        const mDlvs = deliveries.filter(d => {
           if (d.clientId !== c.id) return false;
           const dp = parseDateParts(d.date);
           return dp.y === y && dp.m === m;
-        }).reduce((s, d) => s + d.qty * d.price, 0);
+        });
+        let sum = mDlvs.reduce((s, d) => s + d.qty * d.price, 0);
+        if (c.taxMode === 'exclusive' && sum > 0) {
+          const taxGrp = {};
+          mDlvs.forEach(d => { const r = d.tax || 8; taxGrp[r] = (taxGrp[r]||0) + d.qty * d.price; });
+          Object.keys(taxGrp).forEach(r => { sum += Math.round(taxGrp[r] * parseInt(r) / 100); });
+        }
+        return sum;
       });
       return {label: c.name, data, backgroundColor: COLORS[ci % COLORS.length]};
     });
@@ -1544,11 +1551,18 @@ function renderChart(clientId) {
     // 単一得意先
     const c = APP.clients.find(x => x.id === clientId);
     const data = monthKeys.map(({y, m}) => {
-      return deliveries.filter(d => {
+      const mDlvs = deliveries.filter(d => {
         if (d.clientId !== clientId) return false;
         const dp = parseDateParts(d.date);
         return dp.y === y && dp.m === m;
-      }).reduce((s, d) => s + d.qty * d.price, 0);
+      });
+      let sum = mDlvs.reduce((s, d) => s + d.qty * d.price, 0);
+      if (c && c.taxMode === 'exclusive' && sum > 0) {
+        const taxGrp = {};
+        mDlvs.forEach(d => { const r = d.tax || 8; taxGrp[r] = (taxGrp[r]||0) + d.qty * d.price; });
+        Object.keys(taxGrp).forEach(r => { sum += Math.round(taxGrp[r] * parseInt(r) / 100); });
+      }
+      return sum;
     });
     datasets = [{label: c ? c.name : clientId, data, backgroundColor: '#1a73e8'}];
   }
@@ -1627,8 +1641,16 @@ function renderDeliveries() {
       '</div></div>';
   }).join('');
 
+  // 外税クライアントの場合、合計に消費税を加算
+  const currentClient = APP.clients.find(c => c.id === APP.currentClient);
+  if (currentClient && currentClient.taxMode === 'exclusive' && total > 0) {
+    const taxGrp = {};
+    all.forEach(d => { const r = d.tax || 8; taxGrp[r] = (taxGrp[r]||0) + d.qty * d.price; });
+    Object.keys(taxGrp).forEach(r => { total += Math.round(taxGrp[r] * parseInt(r) / 100); });
+  }
+
   const lastInsertBtn = '<div class="insert-btn-wrap">' +
-    '<button class="insert-btn" onclick="openDeliveryModalAt(' + all.length + ')" title="ここに追加">＋</button></div>';
+    '<button class="insert-btn" onclick="APP.insertBeforeId=null;openDeliveryModal()" title="末尾に追加">＋</button></div>';
   document.getElementById('deliveryList').innerHTML = html + lastInsertBtn;
   document.getElementById('monthTotal').textContent = '¥ ' + total.toLocaleString();
 

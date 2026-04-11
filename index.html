@@ -296,7 +296,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Kaku Gothic ProN','N
     </div>
   </div>
   <div style="text-align:center;padding:16px 0;color:#aaa;font-size:12px">
-    バージョン: <span id="appVersion">2.2.0</span> (2026-04-11)
+    バージョン: <span id="appVersion">2.2.1</span> (2026-04-11)
   </div>
 </div>
 
@@ -1127,6 +1127,10 @@ function cancelInvoice() {
   if (!APP.lastInvoiceNumber) { alert('取消できる請求書がありません'); return; }
   if (!confirm('請求番号 ' + APP.lastInvoiceNumber + ' を取り消しますか？')) return;
   // 番号はissuedリストに残す（再発行時の番号重複を防止）
+  // Bug#4: invoiceHistoryからも削除
+  let hist = JSON.parse(localStorage.getItem('invoiceHistory') || '[]');
+  hist = hist.filter(h => h.number !== APP.lastInvoiceNumber);
+  localStorage.setItem('invoiceHistory', JSON.stringify(hist));
   APP.lastInvoiceNumber = null;
   // 取消済み請求書のプレビューDOMをクリア
   document.getElementById('invoicePreview').innerHTML = '';
@@ -1218,11 +1222,14 @@ function copyDelivery(id) {
   const d = all.find(x => x.id === id);
   if (!d) return;
   APP.insertBeforeId = null;
-  // モーダルを開いて今日の日付にし、他の項目はコピー
+  // モーダルを開いて閲覧中の月の日付にし、他の項目はコピー
   document.getElementById('editDeliveryId').value = '';
   document.getElementById('deliveryModalTitle').textContent = '納品をコピー';
-  const today = new Date();
-  document.getElementById('dlvDate').value = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0') + '-' + String(today.getDate()).padStart(2,'0');
+  // Bug#2: 今日ではなく閲覧中の月の日付をデフォルトに
+  const todayDay = new Date().getDate();
+  const lastDayOfMonth = new Date(APP.currentYear, APP.currentMonth, 0).getDate();
+  const safeDay = Math.min(todayDay, lastDayOfMonth);
+  document.getElementById('dlvDate').value = APP.currentYear + '-' + String(APP.currentMonth).padStart(2,'0') + '-' + String(safeDay).padStart(2,'0');
   document.getElementById('dlvName').value = d.name;
   document.getElementById('dlvQty').value = d.qty;
   document.getElementById('dlvPrice').value = d.price;
@@ -1231,6 +1238,8 @@ function copyDelivery(id) {
   document.getElementById('dlvName').readOnly = false;
   document.getElementById('dlvName').style.background = '';
   document.getElementById('dlvTax').disabled = false;
+  // Bug#3: datalist更新
+  updatePresetDatalist();
   document.getElementById('deliveryModal').style.display = 'flex';
 }
 
@@ -1303,13 +1312,21 @@ function autoFillPreset(name) {
 // 機能4: データバックアップ / 復元
 // ============================================================
 function exportData() {
+  // Bug#5: clientPresetsも含める
+  const clients = JSON.parse(localStorage.getItem('clients') || '[]');
+  const clientPresets = {};
+  clients.forEach(c => {
+    const p = localStorage.getItem('clientPresets_' + c.id);
+    if (p) clientPresets[c.id] = JSON.parse(p);
+  });
   const data = {
     version: '2.2.0',
     exportedAt: new Date().toISOString(),
-    clients: JSON.parse(localStorage.getItem('clients') || '[]'),
+    clients: clients,
     deliveries: JSON.parse(localStorage.getItem('deliveries') || '[]'),
     invoiceHistory: JSON.parse(localStorage.getItem('invoiceHistory') || '[]'),
-    issuedNumbers: JSON.parse(localStorage.getItem('issuedNumbers') || '[]')
+    issuedNumbers: JSON.parse(localStorage.getItem('issuedNumbers') || '[]'),
+    clientPresets: clientPresets
   };
   const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
   const url = URL.createObjectURL(blob);
@@ -1337,7 +1354,15 @@ function importData(event) {
       if (data.deliveries) localStorage.setItem('deliveries', JSON.stringify(data.deliveries));
       if (data.invoiceHistory) localStorage.setItem('invoiceHistory', JSON.stringify(data.invoiceHistory));
       if (data.issuedNumbers) localStorage.setItem('issuedNumbers', JSON.stringify(data.issuedNumbers));
+      // Bug#5: clientPresetsも復元
+      if (data.clientPresets) {
+        Object.keys(data.clientPresets).forEach(cid => {
+          localStorage.setItem('clientPresets_' + cid, JSON.stringify(data.clientPresets[cid]));
+        });
+      }
       APP.clients = JSON.parse(localStorage.getItem('clients') || '[]');
+      // Bug#8: currentClientをリセット
+      APP.currentClient = null;
       renderHome();
       renderClientManage();
       alert('インポートが完了しました');
@@ -1419,7 +1444,7 @@ function saveBulkDeliveries() {
     const dateVal = row.querySelector('.br-date').value;
     const priceVal = parseInt(row.querySelector('.br-price').value);
     const qtyVal = parseInt(row.querySelector('.br-qty').value) || 1;
-    if (!dateVal && !row.querySelector('.br-price').value) return; // 空行はスキップ
+    if (!row.querySelector('.br-price').value) return; // Bug#1: 単価未入力の行はスキップ
     if (!dateVal) { alert((i+1) + '行目: 日付を入力してください'); hasError = true; return; }
     if (isNaN(priceVal) || priceVal < 1) { alert((i+1) + '行目: 単価を入力してください'); hasError = true; return; }
     newItems.push({

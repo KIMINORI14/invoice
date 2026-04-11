@@ -6,6 +6,7 @@
 <title>請求書発行 - ほっともっと西淀川歌島店</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/html2canvas/1.4.1/html2canvas.min.js"></script>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
 <style>
 *{box-sizing:border-box;margin:0;padding:0}
 body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Kaku Gothic ProN','Noto Sans JP',sans-serif;background:#f0f2f5;color:#333;line-height:1.6}
@@ -166,6 +167,27 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Kaku Gothic ProN','N
   .preview-wrap{overflow:visible;position:relative}
 }
 .empty-msg{text-align:center;color:#999;padding:40px 0;font-size:14px}
+
+/* 発行履歴 */
+.history-card{background:#fff;border:1px solid #eee;border-radius:10px;padding:12px 14px;margin-bottom:8px}
+.history-card .hc-number{font-size:12px;color:#888}
+.history-card .hc-date{font-size:12px;color:#888;margin-left:10px}
+.history-card .hc-amount{font-size:16px;font-weight:700;color:#1a73e8;margin-top:4px}
+.history-card .hc-subject{font-size:13px;color:#555;margin-top:2px}
+
+/* 一括入力モーダル */
+.bulk-row{display:flex;gap:6px;align-items:center;margin-bottom:8px;flex-wrap:wrap}
+.bulk-row .br-date{flex:0 0 130px}
+.bulk-row .br-price{flex:1;min-width:80px}
+.bulk-row .br-del{background:none;border:none;color:#ff4444;font-size:18px;cursor:pointer;padding:2px 6px}
+.bulk-common{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.bulk-common .form-group{flex:1;min-width:120px}
+
+/* グラフ画面 */
+#screen-chart canvas{max-width:100%;height:350px!important}
+.chart-toggle{display:flex;gap:8px;margin-bottom:12px;flex-wrap:wrap}
+.chart-toggle button{flex:1;padding:8px;border:2px solid #1a73e8;border-radius:8px;background:#fff;color:#1a73e8;font-size:13px;cursor:pointer;font-weight:600}
+.chart-toggle button.active{background:#1a73e8;color:#fff}
 </style>
 </head>
 <body>
@@ -183,6 +205,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Kaku Gothic ProN','N
 <div id="screen-home" class="screen active">
   <div id="clientCards"></div>
   <button class="btn btn-outline" onclick="openClientModal()">+ 得意先を追加</button>
+  <button class="btn btn-outline" style="margin-top:4px" onclick="showChartScreen(null)">📊 売上グラフ（全得意先）</button>
 </div>
 
 <!-- ===== 画面2: 得意先詳細（納品記録） ===== -->
@@ -197,7 +220,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Kaku Gothic ProN','N
     <span>当月合計</span>
     <span class="total-amount" id="monthTotal">¥ 0</span>
   </div>
-  <button class="btn btn-primary" onclick="APP.insertBeforeId=null;openDeliveryModal()">+ 納品を追加</button>
+  <div style="display:flex;gap:8px;margin-bottom:10px">
+    <button class="btn btn-primary" style="flex:2;margin:0" onclick="APP.insertBeforeId=null;openDeliveryModal()">+ 納品を追加</button>
+    <button class="btn btn-outline" style="flex:1;margin:0" onclick="openBulkModal()">📋 一括入力</button>
+  </div>
   <div class="setting-section" style="margin-top:12px">
     <div class="form-group" style="margin-bottom:10px">
       <label style="font-size:13px;font-weight:600">請求日</label>
@@ -209,6 +235,10 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Kaku Gothic ProN','N
     </div>
   </div>
   <button class="btn btn-outline" onclick="generateInvoice()">請求書を発行</button>
+  <div style="display:flex;gap:8px;margin-bottom:10px">
+    <button class="btn btn-outline" style="flex:1;margin:0" onclick="showHistoryScreen()">📋 発行履歴</button>
+    <button class="btn btn-outline" style="flex:1;margin:0" onclick="showChartScreen(APP.currentClient ? APP.currentClient.id : null)">📊 グラフ</button>
+  </div>
 </div>
 
 <!-- ===== 画面3: プレビュー ===== -->
@@ -220,6 +250,23 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Kaku Gothic ProN','N
   <div class="preview-wrap">
     <div id="invoicePreview"></div>
   </div>
+</div>
+
+<!-- ===== 画面: 発行履歴 ===== -->
+<div id="screen-history" class="screen">
+  <div id="historyList"></div>
+</div>
+
+<!-- ===== 画面: 売上グラフ ===== -->
+<div id="screen-chart" class="screen">
+  <div class="chart-toggle">
+    <button id="chartBtnAll" class="active" onclick="renderChart(null)">全得意先</button>
+    <div id="chartClientBtns" style="display:flex;gap:8px;flex:1;flex-wrap:wrap"></div>
+  </div>
+  <div style="background:#fff;border-radius:10px;padding:16px">
+    <canvas id="salesChart"></canvas>
+  </div>
+  <p style="font-size:12px;color:#999;margin-top:8px;text-align:center">直近12ヶ月の月別売上（税込小計）</p>
 </div>
 
 <!-- ===== 設定画面 ===== -->
@@ -238,8 +285,18 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Kaku Gothic ProN','N
     <div id="clientManageList"></div>
     <button class="btn btn-outline" style="margin-top:12px" onclick="openClientModal()">+ 得意先を追加</button>
   </div>
+  <div class="setting-section">
+    <h3>バックアップ / 復元</h3>
+    <p>全データをJSONファイルとして保存・復元できます。</p>
+    <div style="display:flex;gap:8px;flex-wrap:wrap">
+      <button class="btn-sm btn-primary" onclick="exportData()">📤 エクスポート</button>
+      <label class="btn-sm btn-outline" style="cursor:pointer;display:inline-block;padding:6px 14px;font-size:13px;border-radius:8px;border:2px solid #1a73e8;color:#1a73e8;background:#fff">
+        📥 インポート<input type="file" accept=".json" style="display:none" onchange="importData(event)">
+      </label>
+    </div>
+  </div>
   <div style="text-align:center;padding:16px 0;color:#aaa;font-size:12px">
-    バージョン: <span id="appVersion">2.1.0</span> (2026-04-11)
+    バージョン: <span id="appVersion">2.2.0</span> (2026-04-11)
   </div>
 </div>
 
@@ -272,7 +329,8 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Kaku Gothic ProN','N
     </div>
     <div class="form-group" id="dlvNameGroup">
       <label>品名</label>
-      <input type="text" id="dlvName" placeholder="例: 弁当（配達）" maxlength="50">
+      <input type="text" id="dlvName" placeholder="例: 弁当（配達）" maxlength="50" list="dlvNameList" oninput="autoFillPreset(this.value)">
+      <datalist id="dlvNameList"></datalist>
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -294,6 +352,36 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Kaku Gothic ProN','N
     <div class="modal-actions">
       <button class="modal-cancel" onclick="closeModal('deliveryModal')">キャンセル</button>
       <button class="modal-ok" onclick="saveDelivery()">保存</button>
+    </div>
+  </div>
+</div>
+
+<!-- 一括入力モーダル -->
+<div id="bulkModal" class="modal-overlay" style="display:none" onclick="if(event.target===this)closeModal('bulkModal')">
+  <div class="modal">
+    <h3>一括入力</h3>
+    <label style="display:flex;align-items:center;gap:8px;margin-bottom:12px;cursor:pointer;font-size:14px;font-weight:600;color:#1a73e8">
+      <input type="checkbox" id="bulkAutoFill" onchange="toggleBulkAutoFill()" style="width:20px;height:20px;accent-color:#1a73e8"> お弁当代で自動入力
+    </label>
+    <div class="bulk-common">
+      <div class="form-group" id="bulkNameGroup">
+        <label>品名（共通）</label>
+        <input type="text" id="bulkName" placeholder="例: 弁当（配達）" maxlength="50" list="bulkNameList">
+        <datalist id="bulkNameList"></datalist>
+      </div>
+      <div class="form-group" id="bulkTaxGroup">
+        <label>税率（共通）</label>
+        <select id="bulkTax">
+          <option value="8" selected>軽減8%</option>
+          <option value="10">10%</option>
+        </select>
+      </div>
+    </div>
+    <div id="bulkRows"></div>
+    <button onclick="addBulkRow()" style="background:none;border:1px dashed #1a73e8;color:#1a73e8;width:100%;padding:8px;border-radius:8px;cursor:pointer;font-size:14px;margin-bottom:12px">+ 行を追加</button>
+    <div class="modal-actions">
+      <button class="modal-cancel" onclick="closeModal('bulkModal')">キャンセル</button>
+      <button class="modal-ok" onclick="saveBulkDeliveries()">一括保存</button>
     </div>
   </div>
 </div>
@@ -370,6 +458,8 @@ function showScreen(name, pushStack = true) {
     if (name === 'client') title.textContent = APP.currentClient ? APP.currentClient.name : '';
     else if (name === 'preview') title.textContent = '請求書プレビュー';
     else if (name === 'settings') title.textContent = '設定';
+    else if (name === 'history') title.textContent = '発行履歴';
+    else if (name === 'chart') title.textContent = '売上グラフ';
   }
 }
 
@@ -536,11 +626,15 @@ function deleteClient(id) {
 function renderClientManage() {
   const div = document.getElementById('clientManageList');
   if (!APP.clients.length) { div.innerHTML = '<p style="color:#999;font-size:13px">得意先なし</p>'; return; }
-  div.innerHTML = APP.clients.map(c =>
-    '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #eee">' +
-    '<span style="font-size:14px">' + esc(c.name) + '</span>' +
-    '<button class="btn-sm btn-danger" onclick="deleteClient(\'' + c.id + '\')">削除</button></div>'
-  ).join('');
+  div.innerHTML = APP.clients.map(c => {
+    const isExclusive = c.taxMode === 'exclusive';
+    return '<div style="display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid #eee">' +
+      '<span style="font-size:14px;flex:1">' + esc(c.name) + '</span>' +
+      '<label style="display:flex;align-items:center;gap:4px;font-size:12px;color:#555;margin-right:10px;cursor:pointer">' +
+        '<input type="checkbox" ' + (isExclusive ? 'checked' : '') + ' onchange="toggleTaxMode(\'' + c.id + '\',this.checked)" style="accent-color:#1a73e8"> 外税' +
+      '</label>' +
+      '<button class="btn-sm btn-danger" onclick="deleteClient(\'' + c.id + '\')">削除</button></div>';
+  }).join('');
 }
 
 // ============================================================
@@ -660,57 +754,6 @@ function loadDeliveries() {
   }).catch(() => { APP.syncing = false; });
 }
 
-function renderDeliveries() {
-  document.getElementById('monthLabel').textContent = APP.currentYear + '年' + APP.currentMonth + '月';
-
-  const all = getClientMonthDeliveries();
-  all.sort((a, b) => a.date.localeCompare(b.date));
-
-  if (!all.length) {
-    document.getElementById('deliveryList').innerHTML = '<div class="empty-msg">この月の納品記録はありません</div>';
-    document.getElementById('monthTotal').textContent = '¥ 0';
-    return;
-  }
-
-  let total = 0;
-  const html = all.map((d, idx) => {
-    const amt = d.qty * d.price;
-    total += amt;
-    const dateStr = d.date.replace(/(\d{4})-(\d{2})-(\d{2})/, '$2/$3');
-    const insertBtn = '<div class="insert-btn-wrap">' +
-      '<button class="insert-btn" onclick="openDeliveryModalAt(' + idx + ')" title="ここに追加">＋</button></div>';
-    return insertBtn +
-      '<div class="delivery-item">' +
-      '<div class="di-main">' +
-      '<div class="di-date">' + dateStr + '</div>' +
-      '<div class="di-name">' + esc(d.name) + (d.tax === 8 ? ' ※' : '') + '</div>' +
-      '</div>' +
-      '<div class="di-amount">¥ ' + amt.toLocaleString() + '</div>' +
-      '<div class="di-actions">' +
-      '<button onclick="editDelivery(\'' + d.id + '\')" title="編集">&#9998;</button>' +
-      '<button onclick="deleteDelivery(\'' + d.id + '\')" title="削除" style="color:#ff4444">&#10005;</button>' +
-      '</div></div>';
-  }).join('');
-
-  // 最後の要素の後にも挿入ボタンを追加
-  const lastInsertBtn = '<div class="insert-btn-wrap">' +
-    '<button class="insert-btn" onclick="openDeliveryModalAt(' + all.length + ')" title="ここに追加">＋</button></div>';
-  document.getElementById('deliveryList').innerHTML = html + lastInsertBtn;
-  document.getElementById('monthTotal').textContent = '¥ ' + total.toLocaleString();
-
-  // 請求日・件名のデフォルト値を設定（まだ未入力の場合のみ）
-  const invDateEl = document.getElementById('invDateInput');
-  const invSubjectEl = document.getElementById('invSubjectInput');
-  if (invDateEl && !invDateEl.value) {
-    let iy = APP.currentYear, im = APP.currentMonth + 1;
-    if (im > 12) { im = 1; iy++; }
-    invDateEl.value = iy + '-' + String(im).padStart(2,'0') + '-01';
-  }
-  if (invSubjectEl && !invSubjectEl.value) {
-    invSubjectEl.value = APP.currentMonth + '月納品分ご請求/お弁当代';
-  }
-}
-
 function getClientMonthDeliveries() {
   if (!APP.currentClient) return [];
   const all = getAllDeliveries();
@@ -763,6 +806,7 @@ function openDeliveryModal() {
   const autoFill = localStorage.getItem('autoFill') === '1';
   document.getElementById('dlvAutoFill').checked = autoFill;
   if (autoFill) applyAutoFill();
+  if (typeof updatePresetDatalist === 'function') updatePresetDatalist();
   document.getElementById('deliveryModal').style.display = 'flex';
   if (autoFill) document.getElementById('dlvPrice').focus();
   else document.getElementById('dlvName').focus();
@@ -808,6 +852,7 @@ function editDelivery(id) {
   document.getElementById('dlvQty').value = d.qty;
   document.getElementById('dlvPrice').value = d.price;
   document.getElementById('dlvTax').value = String(d.tax);
+  if (typeof updatePresetDatalist === 'function') updatePresetDatalist();
   document.getElementById('deliveryModal').style.display = 'flex';
 }
 
@@ -868,6 +913,11 @@ function saveDelivery() {
     alert('サーバーへの同期に失敗しました。\nローカルには保存済みです。次回接続時に再同期されます。');
   });
 
+  // 品名プリセット保存（autoFillモード以外）
+  if (!document.getElementById('dlvAutoFill').checked) {
+    saveClientPreset(APP.currentClient.id, nameVal, priceVal, taxVal);
+  }
+
   closeModal('deliveryModal');
   renderDeliveries();
   renderHome();
@@ -925,6 +975,9 @@ function generateInvoice() {
   // 件名：入力値 or デフォルト
   const subject = document.getElementById('invSubjectInput').value.trim() || (m + '月納品分ご請求/お弁当代');
 
+  // 外税モード判定
+  const taxMode = (APP.currentClient && APP.currentClient.taxMode === 'exclusive') ? 'exclusive' : 'inclusive';
+
   // 集計
   let subtotal = 0;
   const taxGroups = {};
@@ -934,6 +987,15 @@ function generateInvoice() {
     if (!taxGroups[d.tax]) taxGroups[d.tax] = 0;
     taxGroups[d.tax] += amt;
   });
+
+  // 外税の場合は税額を別途計算
+  let totalTax = 0;
+  if (taxMode === 'exclusive') {
+    Object.keys(taxGroups).forEach(rate => {
+      totalTax += Math.round(taxGroups[rate] * parseInt(rate) / 100);
+    });
+  }
+  const grandTotal = taxMode === 'exclusive' ? subtotal + totalTax : subtotal;
 
   const hasReduced = items.some(d => d.tax === 8);
 
@@ -967,11 +1029,19 @@ function generateInvoice() {
 
   // 税内訳
   let taxRows = '';
-  Object.keys(taxGroups).sort().forEach(rate => {
-    const taxAmt = Math.floor(taxGroups[rate] * parseInt(rate) / (100 + parseInt(rate)));
-    const label = rate === '8' ? '消費税 (軽減8% 内税)' : '消費税 (10% 内税)';
-    taxRows += '<tr><td class="label">' + label + '</td><td class="value">(' + taxAmt.toLocaleString() + ')</td></tr>';
-  });
+  if (taxMode === 'exclusive') {
+    Object.keys(taxGroups).sort().forEach(rate => {
+      const taxAmt = Math.round(taxGroups[rate] * parseInt(rate) / 100);
+      const label = rate === '8' ? '消費税 (軽減8%)' : '消費税 (10%)';
+      taxRows += '<tr><td class="label">' + label + '</td><td class="value">' + taxAmt.toLocaleString() + '</td></tr>';
+    });
+  } else {
+    Object.keys(taxGroups).sort().forEach(rate => {
+      const taxAmt = Math.floor(taxGroups[rate] * parseInt(rate) / (100 + parseInt(rate)));
+      const label = rate === '8' ? '消費税 (軽減8% 内税)' : '消費税 (10% 内税)';
+      taxRows += '<tr><td class="label">' + label + '</td><td class="value">(' + taxAmt.toLocaleString() + ')</td></tr>';
+    });
+  }
 
   // サイズクラスを適用
   const previewEl = document.getElementById('invoicePreview');
@@ -986,7 +1056,7 @@ function generateInvoice() {
     '<div class="inv-client">' + esc(client) + ' 御中</div>' +
     '<div class="inv-subject">件名 : ' + esc(subject) + '</div>' +
     '<div class="inv-intro">下記のとおりご請求申し上げます。</div>' +
-    '<div class="inv-total-display">ご請求金額 <span>¥ ' + subtotal.toLocaleString() + ' -</span></div>' +
+    '<div class="inv-total-display">ご請求金額 <span>¥ ' + grandTotal.toLocaleString() + ' -</span></div>' +
     '</div>' +
     '<div class="inv-right">' +
     '<div class="inv-company-name">株式会社フィプロ</div>' +
@@ -1014,12 +1084,27 @@ function generateInvoice() {
     '<table class="inv-summary-table">' +
     '<tr><td class="label">小計</td><td class="value">' + subtotal.toLocaleString() + '</td></tr>' +
     taxRows +
-    '<tr style="font-weight:700"><td class="label">合計</td><td class="value">' + subtotal.toLocaleString() + '</td></tr>' +
+    '<tr style="font-weight:700"><td class="label">合計</td><td class="value">' + grandTotal.toLocaleString() + '</td></tr>' +
     '</table></div>' +
     '<div class="inv-notes">日毎の弁当内容につきましては、納品書にてご確認ください。<br>' +
     '恐れ入りますが、振込手数料はお客様のご負担でお願いいたします。</div>' +
     '<div class="inv-bank"><strong>お振込先：</strong><br>' +
     '三菱UFJ銀行 福岡中央支店 （普）0043573 株式会社プレナス</div>';
+
+  // 請求書履歴に保存
+  const historyEntry = {
+    number: invNumber,
+    clientId: APP.currentClient.id,
+    clientName: APP.currentClient.name,
+    date: invDateRaw || (function(){ let iy=y,im=m+1; if(im>12){im=1;iy++;} return iy+'-'+String(im).padStart(2,'0')+'-01'; })(),
+    amount: grandTotal,
+    subject: subject,
+    year: y,
+    month: m
+  };
+  const invoiceHistory = JSON.parse(localStorage.getItem('invoiceHistory') || '[]');
+  invoiceHistory.push(historyEntry);
+  localStorage.setItem('invoiceHistory', JSON.stringify(invoiceHistory));
 
   showScreen('preview');
 
@@ -1125,10 +1210,410 @@ function parseDateParts(dateStr) {
   return {y: parseInt(p[0],10)||0, m: parseInt(p[1],10)||0, d: parseInt(p[2],10)||0};
 }
 
+// ============================================================
+// 機能1: 納品記録のコピー
+// ============================================================
+function copyDelivery(id) {
+  const all = getAllDeliveries();
+  const d = all.find(x => x.id === id);
+  if (!d) return;
+  APP.insertBeforeId = null;
+  // モーダルを開いて今日の日付にし、他の項目はコピー
+  document.getElementById('editDeliveryId').value = '';
+  document.getElementById('deliveryModalTitle').textContent = '納品をコピー';
+  const today = new Date();
+  document.getElementById('dlvDate').value = today.getFullYear() + '-' + String(today.getMonth()+1).padStart(2,'0') + '-' + String(today.getDate()).padStart(2,'0');
+  document.getElementById('dlvName').value = d.name;
+  document.getElementById('dlvQty').value = d.qty;
+  document.getElementById('dlvPrice').value = d.price;
+  document.getElementById('dlvTax').value = String(d.tax);
+  document.getElementById('dlvAutoFill').checked = false;
+  document.getElementById('dlvName').readOnly = false;
+  document.getElementById('dlvName').style.background = '';
+  document.getElementById('dlvTax').disabled = false;
+  document.getElementById('deliveryModal').style.display = 'flex';
+}
+
+// ============================================================
+// 機能2: 請求書発行履歴
+// ============================================================
+function showHistoryScreen() {
+  if (!APP.currentClient) return;
+  showScreen('history');
+  const allHistory = JSON.parse(localStorage.getItem('invoiceHistory') || '[]');
+  const clientHistory = allHistory.filter(h => h.clientId === APP.currentClient.id);
+  clientHistory.sort((a, b) => b.number.localeCompare(a.number));
+  const div = document.getElementById('historyList');
+  if (!clientHistory.length) {
+    div.innerHTML = '<div class="empty-msg">発行履歴はありません</div>';
+    return;
+  }
+  div.innerHTML = clientHistory.map(h => {
+    return '<div class="history-card">' +
+      '<div><span class="hc-number">No.' + esc(h.number) + '</span><span class="hc-date">' + esc(h.date) + '</span></div>' +
+      '<div class="hc-amount">¥ ' + Number(h.amount).toLocaleString() + '</div>' +
+      '<div class="hc-subject">' + esc(h.subject) + '</div>' +
+      '</div>';
+  }).join('');
+}
+
+// ============================================================
+// 機能3: 得意先ごとの単価記憶（品名プリセット）
+// ============================================================
+function saveClientPreset(clientId, name, price, tax) {
+  if (!clientId || !name) return;
+  const key = 'clientPresets_' + clientId;
+  const presets = JSON.parse(localStorage.getItem(key) || '[]');
+  const idx = presets.findIndex(p => p.name === name);
+  if (idx >= 0) {
+    presets[idx] = {name, price, tax};
+  } else {
+    presets.push({name, price, tax});
+  }
+  localStorage.setItem(key, JSON.stringify(presets));
+}
+
+function getClientPresets(clientId) {
+  if (!clientId) return [];
+  return JSON.parse(localStorage.getItem('clientPresets_' + clientId) || '[]');
+}
+
+function updatePresetDatalist() {
+  if (!APP.currentClient) return;
+  const presets = getClientPresets(APP.currentClient.id);
+  // 納品モーダルのdatalist
+  const dl = document.getElementById('dlvNameList');
+  if (dl) dl.innerHTML = presets.map(p => '<option value="' + esc(p.name) + '">').join('');
+  // 一括モーダルのdatalist
+  const bdl = document.getElementById('bulkNameList');
+  if (bdl) bdl.innerHTML = presets.map(p => '<option value="' + esc(p.name) + '">').join('');
+}
+
+function autoFillPreset(name) {
+  if (!APP.currentClient || document.getElementById('dlvAutoFill').checked) return;
+  const presets = getClientPresets(APP.currentClient.id);
+  const preset = presets.find(p => p.name === name);
+  if (preset) {
+    document.getElementById('dlvPrice').value = preset.price;
+    document.getElementById('dlvTax').value = String(preset.tax);
+  }
+}
+
+// ============================================================
+// 機能4: データバックアップ / 復元
+// ============================================================
+function exportData() {
+  const data = {
+    version: '2.2.0',
+    exportedAt: new Date().toISOString(),
+    clients: JSON.parse(localStorage.getItem('clients') || '[]'),
+    deliveries: JSON.parse(localStorage.getItem('deliveries') || '[]'),
+    invoiceHistory: JSON.parse(localStorage.getItem('invoiceHistory') || '[]'),
+    issuedNumbers: JSON.parse(localStorage.getItem('issuedNumbers') || '[]')
+  };
+  const blob = new Blob([JSON.stringify(data, null, 2)], {type: 'application/json'});
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  const now = new Date();
+  a.download = '請求書データ_' + now.getFullYear() + String(now.getMonth()+1).padStart(2,'0') + String(now.getDate()).padStart(2,'0') + '.json';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+function importData(event) {
+  const file = event.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function(e) {
+    try {
+      const data = JSON.parse(e.target.result);
+      if (!data.clients && !data.deliveries) {
+        alert('有効なバックアップファイルではありません');
+        return;
+      }
+      if (!confirm('現在のデータをバックアップファイルで上書きしますか？\nこの操作は元に戻せません。')) return;
+      if (data.clients) localStorage.setItem('clients', JSON.stringify(data.clients));
+      if (data.deliveries) localStorage.setItem('deliveries', JSON.stringify(data.deliveries));
+      if (data.invoiceHistory) localStorage.setItem('invoiceHistory', JSON.stringify(data.invoiceHistory));
+      if (data.issuedNumbers) localStorage.setItem('issuedNumbers', JSON.stringify(data.issuedNumbers));
+      APP.clients = JSON.parse(localStorage.getItem('clients') || '[]');
+      renderHome();
+      renderClientManage();
+      alert('インポートが完了しました');
+    } catch(err) {
+      alert('ファイルの読み込みに失敗しました: ' + err.message);
+    }
+  };
+  reader.readAsText(file);
+  // input値をリセット（同じファイルを再選択可能に）
+  event.target.value = '';
+}
+
+// ============================================================
+// 機能5: 一括入力
+// ============================================================
+function openBulkModal() {
+  if (!APP.currentClient) return;
+  document.getElementById('bulkAutoFill').checked = false;
+  document.getElementById('bulkName').value = '';
+  document.getElementById('bulkName').readOnly = false;
+  document.getElementById('bulkName').style.background = '';
+  document.getElementById('bulkTax').value = '8';
+  document.getElementById('bulkTax').disabled = false;
+  document.getElementById('bulkNameGroup').style.display = '';
+  document.getElementById('bulkTaxGroup').style.display = '';
+  // 行を初期化（5行）
+  const rowsDiv = document.getElementById('bulkRows');
+  rowsDiv.innerHTML = '';
+  for (let i = 0; i < 5; i++) addBulkRow();
+  updatePresetDatalist();
+  document.getElementById('bulkModal').style.display = 'flex';
+}
+
+function addBulkRow() {
+  const rowsDiv = document.getElementById('bulkRows');
+  const idx = rowsDiv.children.length;
+  // H-7に準じた日付デフォルト
+  const todayDay = new Date().getDate();
+  const lastDayOfMonth = new Date(APP.currentYear, APP.currentMonth, 0).getDate();
+  const safeDay = Math.min(todayDay, lastDayOfMonth);
+  const defaultDate = APP.currentYear + '-' + String(APP.currentMonth).padStart(2,'0') + '-' + String(safeDay).padStart(2,'0');
+  const div = document.createElement('div');
+  div.className = 'bulk-row';
+  div.innerHTML =
+    '<input type="date" class="br-date" value="' + defaultDate + '" style="flex:0 0 130px;padding:8px;border:1px solid #ccc;border-radius:8px;font-size:14px">' +
+    '<input type="number" class="br-price" placeholder="単価" min="0" inputmode="numeric" style="flex:1;padding:8px;border:1px solid #ccc;border-radius:8px;font-size:14px">' +
+    '<input type="number" class="br-qty" placeholder="数量" value="1" min="1" inputmode="numeric" style="flex:0 0 60px;padding:8px;border:1px solid #ccc;border-radius:8px;font-size:14px">' +
+    '<button class="br-del" onclick="this.parentElement.remove()" title="削除">✕</button>';
+  rowsDiv.appendChild(div);
+}
+
+function toggleBulkAutoFill() {
+  const checked = document.getElementById('bulkAutoFill').checked;
+  if (checked) {
+    document.getElementById('bulkName').value = '弁当（配達）';
+    document.getElementById('bulkName').readOnly = true;
+    document.getElementById('bulkName').style.background = '#f0f0f0';
+    document.getElementById('bulkTax').value = '8';
+    document.getElementById('bulkTax').disabled = true;
+  } else {
+    document.getElementById('bulkName').value = '';
+    document.getElementById('bulkName').readOnly = false;
+    document.getElementById('bulkName').style.background = '';
+    document.getElementById('bulkTax').disabled = false;
+  }
+}
+
+function saveBulkDeliveries() {
+  const isAutoFill = document.getElementById('bulkAutoFill').checked;
+  const commonName = isAutoFill ? '弁当（配達）' : document.getElementById('bulkName').value.trim();
+  const commonTax = isAutoFill ? 8 : parseInt(document.getElementById('bulkTax').value);
+
+  if (!commonName) { alert('品名を入力してください'); return; }
+
+  const rows = document.getElementById('bulkRows').querySelectorAll('.bulk-row');
+  const newItems = [];
+  let hasError = false;
+  rows.forEach((row, i) => {
+    const dateVal = row.querySelector('.br-date').value;
+    const priceVal = parseInt(row.querySelector('.br-price').value);
+    const qtyVal = parseInt(row.querySelector('.br-qty').value) || 1;
+    if (!dateVal && !row.querySelector('.br-price').value) return; // 空行はスキップ
+    if (!dateVal) { alert((i+1) + '行目: 日付を入力してください'); hasError = true; return; }
+    if (isNaN(priceVal) || priceVal < 1) { alert((i+1) + '行目: 単価を入力してください'); hasError = true; return; }
+    newItems.push({
+      id: 'd_' + (Date.now() + i),
+      clientId: APP.currentClient.id,
+      date: dateVal,
+      name: commonName,
+      qty: qtyVal,
+      price: priceVal,
+      tax: commonTax
+    });
+  });
+  if (hasError) return;
+  if (!newItems.length) { alert('入力されている行がありません'); return; }
+
+  let all = getAllDeliveries();
+  all = all.concat(newItems);
+  saveAllDeliveries(all);
+
+  // プリセット保存
+  if (!isAutoFill) {
+    newItems.forEach(item => saveClientPreset(APP.currentClient.id, item.name, item.price, item.tax));
+  }
+
+  // GAS同期
+  if (isOnline()) {
+    newItems.forEach(item => gasPost({action:'saveDelivery', ...item}));
+  }
+
+  closeModal('bulkModal');
+  renderDeliveries();
+  renderHome();
+  alert(newItems.length + '件を保存しました');
+}
+
+// ============================================================
+// 機能6: 売上グラフ
+// ============================================================
+let salesChartInstance = null;
+
+function showChartScreen(clientId) {
+  APP.chartClientId = clientId;
+  showScreen('chart');
+  // クライアントボタンを更新
+  const btnsDiv = document.getElementById('chartClientBtns');
+  btnsDiv.innerHTML = APP.clients.map(c =>
+    '<button onclick="renderChart(\'' + c.id + '\')" id="chartBtn_' + c.id + '" style="flex:1;padding:8px;border:2px solid #1a73e8;border-radius:8px;background:#fff;color:#1a73e8;font-size:12px;cursor:pointer;font-weight:600">' + esc(c.name) + '</button>'
+  ).join('');
+  renderChart(clientId);
+}
+
+function renderChart(clientId) {
+  APP.chartClientId = clientId;
+  // ボタンのアクティブ状態
+  document.getElementById('chartBtnAll').className = clientId === null ? 'active' : '';
+  document.getElementById('chartBtnAll').style.cssText = clientId === null ? 'flex:1;padding:8px;border:2px solid #1a73e8;border-radius:8px;background:#1a73e8;color:#fff;font-size:13px;cursor:pointer;font-weight:600' : 'flex:1;padding:8px;border:2px solid #1a73e8;border-radius:8px;background:#fff;color:#1a73e8;font-size:13px;cursor:pointer;font-weight:600';
+  APP.clients.forEach(c => {
+    const btn = document.getElementById('chartBtn_' + c.id);
+    if (btn) btn.style.background = (clientId === c.id) ? '#1a73e8' : '#fff';
+    if (btn) btn.style.color = (clientId === c.id) ? '#fff' : '#1a73e8';
+  });
+
+  // 直近12ヶ月のラベル生成
+  const labels = [];
+  const monthKeys = [];
+  const now = new Date();
+  for (let i = 11; i >= 0; i--) {
+    const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
+    labels.push(d.getFullYear() + '/' + String(d.getMonth()+1).padStart(2,'0'));
+    monthKeys.push({y: d.getFullYear(), m: d.getMonth()+1});
+  }
+
+  const deliveries = getAllDeliveries();
+  const COLORS = ['#1a73e8','#e84343','#34a853','#ff9800','#9c27b0','#00bcd4','#795548','#607d8b'];
+
+  let datasets;
+  if (clientId === null) {
+    // 全得意先を色分け積み上げ
+    datasets = APP.clients.map((c, ci) => {
+      const data = monthKeys.map(({y, m}) => {
+        return deliveries.filter(d => {
+          if (d.clientId !== c.id) return false;
+          const dp = parseDateParts(d.date);
+          return dp.y === y && dp.m === m;
+        }).reduce((s, d) => s + d.qty * d.price, 0);
+      });
+      return {label: c.name, data, backgroundColor: COLORS[ci % COLORS.length]};
+    });
+  } else {
+    // 単一得意先
+    const c = APP.clients.find(x => x.id === clientId);
+    const data = monthKeys.map(({y, m}) => {
+      return deliveries.filter(d => {
+        if (d.clientId !== clientId) return false;
+        const dp = parseDateParts(d.date);
+        return dp.y === y && dp.m === m;
+      }).reduce((s, d) => s + d.qty * d.price, 0);
+    });
+    datasets = [{label: c ? c.name : clientId, data, backgroundColor: '#1a73e8'}];
+  }
+
+  const ctx = document.getElementById('salesChart').getContext('2d');
+  if (salesChartInstance) salesChartInstance.destroy();
+  salesChartInstance = new Chart(ctx, {
+    type: 'bar',
+    data: {labels, datasets},
+    options: {
+      responsive: true,
+      plugins: {
+        legend: {display: datasets.length > 1},
+        tooltip: {
+          callbacks: {
+            label: ctx => ctx.dataset.label + ': ¥' + ctx.raw.toLocaleString()
+          }
+        }
+      },
+      scales: {
+        x: {stacked: clientId === null},
+        y: {
+          stacked: clientId === null,
+          ticks: {callback: v => '¥' + v.toLocaleString()}
+        }
+      }
+    }
+  });
+}
+
+// ============================================================
+// 機能7: 外税モード切替
+// ============================================================
+function toggleTaxMode(clientId, isExclusive) {
+  const c = APP.clients.find(x => x.id === clientId);
+  if (!c) return;
+  c.taxMode = isExclusive ? 'exclusive' : 'inclusive';
+  localStorage.setItem('clients', JSON.stringify(APP.clients));
+}
+
+// ============================================================
+// 納品リスト描画（複製ボタン付き）
+// ============================================================
+function renderDeliveries() {
+  document.getElementById('monthLabel').textContent = APP.currentYear + '年' + APP.currentMonth + '月';
+
+  const all = getClientMonthDeliveries();
+  all.sort((a, b) => a.date.localeCompare(b.date));
+
+  if (!all.length) {
+    document.getElementById('deliveryList').innerHTML = '<div class="empty-msg">この月の納品記録はありません</div>';
+    document.getElementById('monthTotal').textContent = '¥ 0';
+    return;
+  }
+
+  let total = 0;
+  const html = all.map((d, idx) => {
+    const amt = d.qty * d.price;
+    total += amt;
+    const dateStr = d.date.replace(/(\d{4})-(\d{2})-(\d{2})/, '$2/$3');
+    const insertBtn = '<div class="insert-btn-wrap">' +
+      '<button class="insert-btn" onclick="openDeliveryModalAt(' + idx + ')" title="ここに追加">＋</button></div>';
+    return insertBtn +
+      '<div class="delivery-item">' +
+      '<div class="di-main">' +
+      '<div class="di-date">' + dateStr + '</div>' +
+      '<div class="di-name">' + esc(d.name) + (d.tax === 8 ? ' ※' : '') + '</div>' +
+      '</div>' +
+      '<div class="di-amount">¥ ' + amt.toLocaleString() + '</div>' +
+      '<div class="di-actions">' +
+      '<button onclick="copyDelivery(\'' + d.id + '\')" title="コピー">📋</button>' +
+      '<button onclick="editDelivery(\'' + d.id + '\')" title="編集">&#9998;</button>' +
+      '<button onclick="deleteDelivery(\'' + d.id + '\')" title="削除" style="color:#ff4444">&#10005;</button>' +
+      '</div></div>';
+  }).join('');
+
+  const lastInsertBtn = '<div class="insert-btn-wrap">' +
+    '<button class="insert-btn" onclick="openDeliveryModalAt(' + all.length + ')" title="ここに追加">＋</button></div>';
+  document.getElementById('deliveryList').innerHTML = html + lastInsertBtn;
+  document.getElementById('monthTotal').textContent = '¥ ' + total.toLocaleString();
+
+  const invDateEl = document.getElementById('invDateInput');
+  const invSubjectEl = document.getElementById('invSubjectInput');
+  if (invDateEl && !invDateEl.value) {
+    let iy = APP.currentYear, im = APP.currentMonth + 1;
+    if (im > 12) { im = 1; iy++; }
+    invDateEl.value = iy + '-' + String(im).padStart(2,'0') + '-01';
+  }
+  if (invSubjectEl && !invSubjectEl.value) {
+    invSubjectEl.value = APP.currentMonth + '月納品分ご請求/お弁当代';
+  }
+}
+
 // Escapeキーでモーダルを閉じる
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Escape') {
-    ['deliveryModal', 'clientModal'].forEach(id => {
+    ['deliveryModal', 'clientModal', 'bulkModal'].forEach(id => {
       if (document.getElementById(id).style.display !== 'none') closeModal(id);
     });
   }

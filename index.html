@@ -296,7 +296,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Kaku Gothic ProN','N
     </div>
   </div>
   <div style="text-align:center;padding:16px 0;color:#aaa;font-size:12px">
-    バージョン: <span id="appVersion">2.2.1</span> (2026-04-11)
+    バージョン: <span id="appVersion">2.2.2</span> (2026-04-11)
   </div>
 </div>
 
@@ -554,12 +554,18 @@ function renderHome() {
       const dp = parseDateParts(d.date);
       return (dp.y * 100 + dp.m) === ym;
     });
-    const total = monthDlvs.reduce((s, d) => s + d.qty * d.price, 0);
+    let total = monthDlvs.reduce((s, d) => s + d.qty * d.price, 0);
+    // M-4: 外税得意先は税込合計を表示
+    if (c.taxMode === 'exclusive' && total > 0) {
+      const taxGrp = {};
+      monthDlvs.forEach(d => { const r = d.tax || 8; taxGrp[r] = (taxGrp[r]||0) + d.qty * d.price; });
+      Object.keys(taxGrp).forEach(r => { total += Math.round(taxGrp[r] * parseInt(r) / 100); });
+    }
     const count = monthDlvs.length;
     return '<div class="card" onclick="openClient(\'' + c.id + '\')" style="position:relative">' +
       '<button onclick="event.stopPropagation();deleteClient(\'' + c.id + '\')" style="position:absolute;top:8px;right:8px;background:none;border:none;color:#ccc;font-size:18px;cursor:pointer;padding:4px 8px">&#10005;</button>' +
       '<div class="card-title">' + esc(c.name) + '</div>' +
-      '<div class="card-sub">今月: ' + count + '件</div>' +
+      '<div class="card-sub">今月: ' + count + '件' + (c.taxMode === 'exclusive' ? '（外税）' : '') + '</div>' +
       (total > 0 ? '<div class="card-amount">¥ ' + total.toLocaleString() + '</div>' : '') +
       '</div>';
   }).join('');
@@ -1292,10 +1298,10 @@ function updatePresetDatalist() {
   const presets = getClientPresets(APP.currentClient.id);
   // 納品モーダルのdatalist
   const dl = document.getElementById('dlvNameList');
-  if (dl) dl.innerHTML = presets.map(p => '<option value="' + esc(p.name) + '">').join('');
+  if (dl) dl.innerHTML = presets.map(p => '<option value="' + esc(p.name).replace(/"/g, '&quot;') + '">').join('');
   // 一括モーダルのdatalist
   const bdl = document.getElementById('bulkNameList');
-  if (bdl) bdl.innerHTML = presets.map(p => '<option value="' + esc(p.name) + '">').join('');
+  if (bdl) bdl.innerHTML = presets.map(p => '<option value="' + esc(p.name).replace(/"/g, '&quot;') + '">').join('');
 }
 
 function autoFillPreset(name) {
@@ -1320,7 +1326,7 @@ function exportData() {
     if (p) clientPresets[c.id] = JSON.parse(p);
   });
   const data = {
-    version: '2.2.0',
+    version: '2.2.1',
     exportedAt: new Date().toISOString(),
     clients: clients,
     deliveries: JSON.parse(localStorage.getItem('deliveries') || '[]'),
@@ -1366,6 +1372,7 @@ function importData(event) {
       renderHome();
       renderClientManage();
       alert('インポートが完了しました');
+      showScreen('home');
     } catch(err) {
       alert('ファイルの読み込みに失敗しました: ' + err.message);
     }
@@ -1439,14 +1446,15 @@ function saveBulkDeliveries() {
 
   const rows = document.getElementById('bulkRows').querySelectorAll('.bulk-row');
   const newItems = [];
-  let hasError = false;
-  rows.forEach((row, i) => {
+  const rowArr = Array.from(rows);
+  for (let i = 0; i < rowArr.length; i++) {
+    const row = rowArr[i];
     const dateVal = row.querySelector('.br-date').value;
     const priceVal = parseInt(row.querySelector('.br-price').value);
     const qtyVal = parseInt(row.querySelector('.br-qty').value) || 1;
-    if (!row.querySelector('.br-price').value) return; // Bug#1: 単価未入力の行はスキップ
-    if (!dateVal) { alert((i+1) + '行目: 日付を入力してください'); hasError = true; return; }
-    if (isNaN(priceVal) || priceVal < 1) { alert((i+1) + '行目: 単価を入力してください'); hasError = true; return; }
+    if (!row.querySelector('.br-price').value) continue; // 単価未入力はスキップ
+    if (!dateVal) { alert((i+1) + '行目: 日付を入力してください'); return; }
+    if (isNaN(priceVal) || priceVal < 1) { alert((i+1) + '行目: 単価は1以上を入力してください'); return; }
     newItems.push({
       id: 'd_' + (Date.now() + i),
       clientId: APP.currentClient.id,
@@ -1456,8 +1464,7 @@ function saveBulkDeliveries() {
       price: priceVal,
       tax: commonTax
     });
-  });
-  if (hasError) return;
+  }
   if (!newItems.length) { alert('入力されている行がありません'); return; }
 
   let all = getAllDeliveries();
@@ -1580,6 +1587,8 @@ function toggleTaxMode(clientId, isExclusive) {
   if (!c) return;
   c.taxMode = isExclusive ? 'exclusive' : 'inclusive';
   localStorage.setItem('clients', JSON.stringify(APP.clients));
+  renderHome();
+  if (isOnline()) gasPost({action:'updateClient', id: c.id, name: c.name, taxMode: c.taxMode});
 }
 
 // ============================================================

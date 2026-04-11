@@ -269,7 +269,7 @@ body{font-family:-apple-system,BlinkMacSystemFont,'Hiragino Kaku Gothic ProN','N
     </div>
     <div class="form-group" id="dlvNameGroup">
       <label>品名</label>
-      <input type="text" id="dlvName" placeholder="例: 弁当（配達）">
+      <input type="text" id="dlvName" placeholder="例: 弁当（配達）" maxlength="50">
     </div>
     <div class="form-row">
       <div class="form-group">
@@ -306,7 +306,10 @@ const APP = {
   currentYear: new Date().getFullYear(),
   currentMonth: new Date().getMonth() + 1,
   gasUrl: localStorage.getItem('gasUrl') || 'https://script.google.com/macros/s/AKfycbwU3ZI97dMOEo65ydHR9Xv3NBHV0Z6kwGpwvMpkVL5ztf19_CAiRslmpT1Bd2vVcUo0/exec',
-  screenStack: ['home']
+  screenStack: ['home'],
+  syncing: false,       // Bug1: 同期ロック
+  syncingClients: false, // Bug4: クライアント同期ロック
+  deviceId: localStorage.getItem('deviceId') || (function(){ const id = 'dev_' + Date.now().toString(36); localStorage.setItem('deviceId', id); return id; })()
 };
 
 // ============================================================
@@ -316,6 +319,22 @@ document.addEventListener('DOMContentLoaded', () => {
   document.getElementById('gasUrl').value = APP.gasUrl;
   updateConnStatus();
   loadClients();
+  // Bug6: 初期表示時にクライアント管理リストも描画
+  renderClientManage();
+});
+
+// Bug19: ブラウザ戻るボタン対応（カウンタ方式でgoBackとの二重実行を防止）
+window.addEventListener('popstate', (e) => {
+  if (APP._skipPopstate > 0) {
+    APP._skipPopstate--;
+    return;
+  }
+  if (APP.screenStack.length > 1) {
+    saveInvInputs();
+    APP.screenStack.pop();
+    const prev = APP.screenStack[APP.screenStack.length - 1] || 'home';
+    showScreen(prev, false);
+  }
 });
 
 // ============================================================
@@ -337,7 +356,13 @@ function showScreen(name, pushStack = true) {
   } else {
     back.style.display = '';
     settings.style.display = name === 'settings' ? 'none' : '';
-    if (pushStack) APP.screenStack.push(name);
+    if (pushStack) {
+      // 同じ画面の重複積み上げを防止（設定画面の繰り返し開き等）
+      if (APP.screenStack[APP.screenStack.length - 1] !== name) {
+        APP.screenStack.push(name);
+        history.pushState({screen: name}, '');
+      }
+    }
 
     if (name === 'client') title.textContent = APP.currentClient ? APP.currentClient.name : '';
     else if (name === 'preview') title.textContent = '請求書プレビュー';
@@ -346,9 +371,14 @@ function showScreen(name, pushStack = true) {
 }
 
 function goBack() {
+  // Bug20: 戻る前に入力値保存
+  saveInvInputs();
   APP.screenStack.pop();
   const prev = APP.screenStack[APP.screenStack.length - 1] || 'home';
   showScreen(prev, false);
+  // ブラウザ履歴も同期（popstate側でスキップするようカウンタ管理）
+  APP._skipPopstate = (APP._skipPopstate || 0) + 1;
+  history.back();
 }
 
 // ============================================================
@@ -379,6 +409,19 @@ function updateConnStatus() {
   const b = document.getElementById('connStatus');
   if (isOnline()) { b.textContent = '接続済み'; b.className = 'status-badge on'; }
   else { b.textContent = '未接続'; b.className = 'status-badge off'; }
+  // Bug16: ヘッダーにオフライン表示
+  let offBadge = document.getElementById('offlineBadge');
+  if (!isOnline()) {
+    if (!offBadge) {
+      offBadge = document.createElement('span');
+      offBadge.id = 'offlineBadge';
+      offBadge.style.cssText = 'background:#ff9800;color:#fff;font-size:11px;padding:2px 8px;border-radius:8px;margin-left:8px';
+      offBadge.textContent = 'オフライン';
+      document.getElementById('headerTitle').after(offBadge);
+    }
+  } else if (offBadge) {
+    offBadge.remove();
+  }
 }
 
 // ============================================================
@@ -388,10 +431,21 @@ async function loadClients() {
   // まずローカルデータで即座に表示
   APP.clients = JSON.parse(localStorage.getItem('clients') || '[]');
   renderHome();
-  // バックグラウンドでGASと同期
-  if (isOnline()) {
+  // バックグラウンドでGASと同期（Bug4: マージ方式に変更）
+  if (isOnline() && !APP.syncingClients) {
+    APP.syncingClients = true;
     gasGet({action:'clients'}).then(d => {
-      if (d && d.clients) { APP.clients = d.clients; localStorage.setItem('clients', JSON.stringify(APP.clients)); renderHome(); }
+      APP.syncingClients = false;
+      if (d && d.clients) {
+        const gasClients = d.clients;
+        const gasIds = new Set(gasClients.map(c => c.id));
+        // ローカルにしかない未同期クライアント（c_ prefix）を保持
+        const localOnly = APP.clients.filter(c => c.id.startsWith('c_') && !gasIds.has(c.id));
+        APP.clients = [...gasClients, ...localOnly];
+        localStorage.setItem('clients', JSON.stringify(APP.clients));
+        renderHome();
+        renderClientManage();
+      }
     });
   }
 }
@@ -404,8 +458,8 @@ function renderHome() {
   const html = APP.clients.map(c => {
     const monthDlvs = deliveries.filter(d => {
       if (d.clientId !== c.id) return false;
-      const dt = new Date(d.date);
-      return (dt.getFullYear() * 100 + dt.getMonth() + 1) === ym;
+      const dp = parseDateParts(d.date);
+      return (dp.y * 100 + dp.m) === ym;
     });
     const total = monthDlvs.reduce((s, d) => s + d.qty * d.price, 0);
     const count = monthDlvs.length;
@@ -429,6 +483,11 @@ function openClientModal() {
 function addClient() {
   const name = document.getElementById('newClientName').value.trim();
   if (!name) return;
+  // Bug18: 得意先名重複チェック
+  if (APP.clients.some(c => c.name === name)) {
+    alert('同じ名前の得意先が既に存在します');
+    return;
+  }
   const id = 'c_' + Date.now();
   APP.clients.push({id, name});
   localStorage.setItem('clients', JSON.stringify(APP.clients));
@@ -437,17 +496,35 @@ function addClient() {
   renderClientManage();
   if (isOnline()) gasPost({action:'addClient', name}).then(r => {
     if (r && r.success && r.id) {
-      const c = APP.clients.find(x => x.id === id);
-      if (c) c.id = r.id;
-      localStorage.setItem('clients', JSON.stringify(APP.clients));
+      const oldId = id;
+      const c = APP.clients.find(x => x.id === oldId);
+      if (c) {
+        c.id = r.id;
+        localStorage.setItem('clients', JSON.stringify(APP.clients));
+        // Bug2: 納品データのclientIdも更新
+        let deliveries = getAllDeliveries();
+        let changed = false;
+        deliveries.forEach(d => { if (d.clientId === oldId) { d.clientId = r.id; changed = true; } });
+        if (changed) saveAllDeliveries(deliveries);
+        // C-2: 現在開いている得意先のIDも更新
+        if (APP.currentClient && APP.currentClient.id === oldId) {
+          APP.currentClient.id = r.id;
+        }
+        renderHome();
+        renderClientManage();
+      }
     }
   });
 }
 
 function deleteClient(id) {
-  if (!confirm('この得意先を削除しますか？')) return;
+  if (!confirm('この得意先を削除しますか？\n関連する納品記録もすべて削除されます。')) return;
   APP.clients = APP.clients.filter(c => c.id !== id);
   localStorage.setItem('clients', JSON.stringify(APP.clients));
+  // Bug11: 関連する納品データも削除
+  let deliveries = getAllDeliveries();
+  deliveries = deliveries.filter(d => d.clientId !== id);
+  saveAllDeliveries(deliveries);
   renderHome();
   renderClientManage();
   if (isOnline()) gasPost({action:'deleteClient', id});
@@ -467,22 +544,64 @@ function renderClientManage() {
 // 得意先詳細画面
 // ============================================================
 function openClient(id) {
+  // Bug20: 画面切替前に請求日・件名を保存
+  saveInvInputs();
   APP.currentClient = APP.clients.find(c => c.id === id);
   if (!APP.currentClient) return;
   APP.currentYear = new Date().getFullYear();
   APP.currentMonth = new Date().getMonth() + 1;
   showScreen('client');
   loadDeliveries();
+  restoreInvInputs();
+}
+
+// Bug20: 請求日・件名の保存/復元
+function saveInvInputs() {
+  if (!APP.currentClient) return;
+  const key = 'invInputs_' + APP.currentClient.id + '_' + APP.currentYear + '_' + APP.currentMonth;
+  const dateEl = document.getElementById('invDateInput');
+  const subjEl = document.getElementById('invSubjectInput');
+  if (dateEl && subjEl) {
+    localStorage.setItem(key, JSON.stringify({date: dateEl.value, subject: subjEl.value}));
+  }
+}
+function restoreInvInputs() {
+  if (!APP.currentClient) return;
+  const key = 'invInputs_' + APP.currentClient.id + '_' + APP.currentYear + '_' + APP.currentMonth;
+  const saved = localStorage.getItem(key);
+  if (saved) {
+    try {
+      const data = JSON.parse(saved);
+      const dateEl = document.getElementById('invDateInput');
+      const subjEl = document.getElementById('invSubjectInput');
+      if (dateEl && data.date) dateEl.value = data.date;
+      if (subjEl && data.subject) subjEl.value = data.subject;
+    } catch(e) {}
+  }
 }
 
 function changeMonth(delta) {
+  // Bug10: 切替前に現在の入力値を保存
+  saveInvInputs();
   APP.currentMonth += delta;
   if (APP.currentMonth > 12) { APP.currentMonth = 1; APP.currentYear++; }
   if (APP.currentMonth < 1) { APP.currentMonth = 12; APP.currentYear--; }
-  // 月切り替え時にデフォルト値をリセット
+  // リセット後にloadDeliveriesでデフォルト値がセットされる
   document.getElementById('invDateInput').value = '';
   document.getElementById('invSubjectInput').value = '';
   loadDeliveries();
+  // 保存値がある場合のみ復元（空文字保存はデフォルト値を消さないよう除外）
+  const key = 'invInputs_' + (APP.currentClient ? APP.currentClient.id : '') + '_' + APP.currentYear + '_' + APP.currentMonth;
+  const saved = localStorage.getItem(key);
+  if (saved) {
+    try {
+      const data = JSON.parse(saved);
+      const dateEl = document.getElementById('invDateInput');
+      const subjEl = document.getElementById('invSubjectInput');
+      if (dateEl && data.date) dateEl.value = data.date;
+      if (subjEl && data.subject) subjEl.value = data.subject;
+    } catch(e) {}
+  }
 }
 
 function normalizeDate(d) {
@@ -496,7 +615,22 @@ function normalizeDate(d) {
 function loadDeliveries() {
   renderDeliveries();
   if (!isOnline() || !APP.currentClient) return;
-  gasGet({action:'deliveries', clientId: APP.currentClient.id}).then(d => {
+  // Bug1: 同期ロックでレースコンディション防止
+  // H-6: 10秒以上経過した場合はロック解除（固着防止）
+  if (APP.syncing) {
+    if (APP.syncStartTime && Date.now() - APP.syncStartTime > 10000) {
+      APP.syncing = false;
+    } else {
+      return;
+    }
+  }
+  APP.syncing = true;
+  APP.syncStartTime = Date.now();
+  const syncClientId = APP.currentClient.id;
+  gasGet({action:'deliveries', clientId: syncClientId}).then(d => {
+    APP.syncing = false;
+    // 同期完了時にクライアントが変わっていたら破棄
+    if (!APP.currentClient || APP.currentClient.id !== syncClientId) return;
     if (d && d.deliveries) {
       const gasDeliveries = d.deliveries.map(item => ({
         id: item.id,
@@ -508,19 +642,22 @@ function loadDeliveries() {
         tax: parseInt(item.tax) || 8
       }));
       let all = getAllDeliveries();
-      // このクライアントの既存データを除去し、GASデータで置換
-      const localOnly = all.filter(x => x.clientId !== APP.currentClient.id);
-      // ローカルにしかない未同期データ（d_ prefix）を保持
+      const localOnly = all.filter(x => x.clientId !== syncClientId);
       const gasIds = new Set(gasDeliveries.map(x => x.id));
-      const unsyncedLocal = all.filter(x => x.clientId === APP.currentClient.id && x.id.startsWith('d_') && !gasIds.has(x.id));
+      // M-2: 未同期ローカルデータは作成後5分以内のもののみ保持（古いd_はGAS側で削除済みと判断）
+      const now = Date.now();
+      const unsyncedLocal = all.filter(x => {
+        if (x.clientId !== syncClientId || !x.id.startsWith('d_') || gasIds.has(x.id)) return false;
+        const ts = parseInt(x.id.replace('d_', ''), 10);
+        return !isNaN(ts) && (now - ts) < 300000;
+      });
       saveAllDeliveries([...localOnly, ...gasDeliveries, ...unsyncedLocal]);
       renderDeliveries();
     }
-  });
+  }).catch(() => { APP.syncing = false; });
 }
 
 function renderDeliveries() {
-  document.getElementById('monthLabel', APP.currentYear + '年' + APP.currentMonth + '月');
   document.getElementById('monthLabel').textContent = APP.currentYear + '年' + APP.currentMonth + '月';
 
   const all = getClientMonthDeliveries();
@@ -552,7 +689,10 @@ function renderDeliveries() {
       '</div></div>';
   }).join('');
 
-  document.getElementById('deliveryList').innerHTML = html;
+  // 最後の要素の後にも挿入ボタンを追加
+  const lastInsertBtn = '<div class="insert-btn-wrap">' +
+    '<button class="insert-btn" onclick="openDeliveryModalAt(' + all.length + ')" title="ここに追加">＋</button></div>';
+  document.getElementById('deliveryList').innerHTML = html + lastInsertBtn;
   document.getElementById('monthTotal').textContent = '¥ ' + total.toLocaleString();
 
   // 請求日・件名のデフォルト値を設定（まだ未入力の場合のみ）
@@ -573,8 +713,8 @@ function getClientMonthDeliveries() {
   const all = getAllDeliveries();
   return all.filter(d => {
     if (d.clientId !== APP.currentClient.id) return false;
-    const dt = new Date(d.date);
-    return dt.getFullYear() === APP.currentYear && dt.getMonth() + 1 === APP.currentMonth;
+    const dp = parseDateParts(d.date);
+    return dp.y === APP.currentYear && dp.m === APP.currentMonth;
   });
 }
 
@@ -586,7 +726,13 @@ function getAllDeliveries() {
 }
 
 function saveAllDeliveries(list) {
-  localStorage.setItem('deliveries', JSON.stringify(list));
+  // Bug15: localStorage容量チェック
+  try {
+    localStorage.setItem('deliveries', JSON.stringify(list));
+  } catch(e) {
+    console.error('localStorage save error:', e);
+    alert('データの保存に失敗しました。ストレージの容量が不足している可能性があります。');
+  }
 }
 
 function openDeliveryModalAt(idx) {
@@ -598,11 +744,14 @@ function openDeliveryModalAt(idx) {
   if (ref) document.getElementById('dlvDate').value = ref.date;
 }
 
-function openDeliveryModal(editId) {
-  if (!editId) APP.insertBeforeId = APP.insertBeforeId || null;
+function openDeliveryModal() {
   document.getElementById('editDeliveryId').value = '';
   document.getElementById('deliveryModalTitle').textContent = APP.insertBeforeId ? '納品を挿入' : '納品を追加';
-  document.getElementById('dlvDate').value = APP.currentYear + '-' + String(APP.currentMonth).padStart(2,'0') + '-' + String(new Date().getDate()).padStart(2,'0');
+  // H-7: 過去月閲覧時に存在しない日付にならないよう補正
+  const todayDay = new Date().getDate();
+  const lastDayOfMonth = new Date(APP.currentYear, APP.currentMonth, 0).getDate();
+  const safeDay = Math.min(todayDay, lastDayOfMonth);
+  document.getElementById('dlvDate').value = APP.currentYear + '-' + String(APP.currentMonth).padStart(2,'0') + '-' + String(safeDay).padStart(2,'0');
   document.getElementById('dlvName').value = '';
   document.getElementById('dlvQty').value = '1';
   document.getElementById('dlvPrice').value = '';
@@ -644,6 +793,7 @@ function editDelivery(id) {
   const all = getAllDeliveries();
   const d = all.find(x => x.id === id);
   if (!d) return;
+  APP.insertBeforeId = null; // 編集時は挿入モードをクリア
   document.getElementById('editDeliveryId').value = id;
   document.getElementById('deliveryModalTitle').textContent = '納品を編集';
   document.getElementById('dlvAutoFill').checked = false;
@@ -660,17 +810,32 @@ function editDelivery(id) {
 
 function saveDelivery() {
   const editId = document.getElementById('editDeliveryId').value;
+  const dateVal = document.getElementById('dlvDate').value;
+  const nameVal = document.getElementById('dlvName').value.trim();
+  const qtyVal = parseInt(document.getElementById('dlvQty').value);
+  const priceVal = parseInt(document.getElementById('dlvPrice').value);
+  const taxVal = document.getElementById('dlvAutoFill').checked ? 8 : parseInt(document.getElementById('dlvTax').value);
+
+  // Bug7: 日付バリデーション
+  if (!dateVal) { alert('納品日を入力してください'); return; }
+  const dateObj = new Date(dateVal);
+  if (isNaN(dateObj.getTime())) { alert('有効な日付を入力してください'); return; }
+  // Bug13: 品名バリデーション
+  if (!nameVal) { alert('品名を入力してください'); return; }
+  if (nameVal.length > 50) { alert('品名は50文字以内にしてください'); return; }
+  // Bug9: 数量・単価バリデーション
+  if (!qtyVal || qtyVal < 1) { alert('数量は1以上を入力してください'); return; }
+  if (isNaN(priceVal) || priceVal < 1) { alert('単価は1以上を入力してください'); return; }
+
   const d = {
     id: editId || 'd_' + Date.now(),
     clientId: APP.currentClient.id,
-    date: document.getElementById('dlvDate').value,
-    name: document.getElementById('dlvName').value.trim(),
-    qty: parseInt(document.getElementById('dlvQty').value) || 1,
-    price: parseInt(document.getElementById('dlvPrice').value) || 0,
-    tax: document.getElementById('dlvAutoFill').checked ? 8 : parseInt(document.getElementById('dlvTax').value)
+    date: dateVal,
+    name: nameVal,
+    qty: qtyVal,
+    price: priceVal,
+    tax: taxVal
   };
-  if (!d.name) { alert('品名を入力してください'); return; }
-  if (!d.price) { alert('単価を入力してください'); return; }
 
   let all = getAllDeliveries();
   if (editId) {
@@ -686,13 +851,18 @@ function saveDelivery() {
   APP.insertBeforeId = null;
   saveAllDeliveries(all);
 
-  // GAS にも保存（返却IDでローカル更新）
+  // Bug5: GAS保存エラーを通知
   if (isOnline()) gasPost({action:'saveDelivery', ...d}).then(r => {
-    if (r && r.success && r.id && r.id !== d.id) {
+    if (r && r.error) {
+      alert('サーバー同期エラー: ' + r.error + '\nローカルには保存済みです。');
+    } else if (r && r.success && r.id && r.id !== d.id) {
       let updated = getAllDeliveries();
       const item = updated.find(x => x.id === d.id);
-      if (item) { item.id = r.id; saveAllDeliveries(updated); }
+      if (item) { item.id = r.id; saveAllDeliveries(updated); renderDeliveries(); }
     }
+  }).catch(e => {
+    console.error('GAS sync error:', e);
+    alert('サーバーへの同期に失敗しました。\nローカルには保存済みです。次回接続時に再同期されます。');
   });
 
   closeModal('deliveryModal');
@@ -735,14 +905,16 @@ function generateInvoice() {
     invDateStr = invYear + '年' + String(invMonth).padStart(2,'0') + '月01日';
   }
 
-  // 請求番号の採番
+  // Bug3: 請求番号の採番（デバイスID付きで重複防止）
   const invDateForNum = invDateRaw || (function(){ let iy=y,im=m+1; if(im>12){im=1;iy++;} return iy+'-'+String(im).padStart(2,'0')+'-01'; })();
   const dp = invDateForNum.split('-');
   const invNumPrefix = dp[0] + dp[1] + dp[2];
+  const devSuffix = APP.deviceId.slice(-4);
   const issued = JSON.parse(localStorage.getItem('issuedNumbers') || '[]');
   let maxSeq = 0;
-  issued.forEach(n => { if (n.startsWith(invNumPrefix + '-')) { const s = parseInt(n.split('-')[1],10); if (s > maxSeq) maxSeq = s; }});
-  const invNumber = invNumPrefix + '-' + String(maxSeq + 1).padStart(3, '0');
+  // 区切り文字付きで正確にシーケンス番号のみを抽出
+  issued.forEach(n => { const match = n.match(new RegExp('^' + invNumPrefix + '-(\\d{3,})[^0-9]')); if (match) { const s = parseInt(match[1],10); if (s > maxSeq) maxSeq = s; }});
+  const invNumber = invNumPrefix + '-' + String(maxSeq + 1).padStart(3, '0') + '_' + devSuffix;
   issued.push(invNumber);
   localStorage.setItem('issuedNumbers', JSON.stringify(issued));
   APP.lastInvoiceNumber = invNumber;
@@ -865,12 +1037,12 @@ function generateInvoice() {
 
 function cancelInvoice() {
   if (!APP.lastInvoiceNumber) { alert('取消できる請求書がありません'); return; }
-  if (!confirm('請求番号 ' + APP.lastInvoiceNumber + ' を取り消しますか？\n発行済み番号が削除されます。')) return;
-  let issued = JSON.parse(localStorage.getItem('issuedNumbers') || '[]');
-  issued = issued.filter(n => n !== APP.lastInvoiceNumber);
-  localStorage.setItem('issuedNumbers', JSON.stringify(issued));
+  if (!confirm('請求番号 ' + APP.lastInvoiceNumber + ' を取り消しますか？')) return;
+  // 番号はissuedリストに残す（再発行時の番号重複を防止）
   APP.lastInvoiceNumber = null;
-  alert('請求書を取り消しました');
+  // 取消済み請求書のプレビューDOMをクリア
+  document.getElementById('invoicePreview').innerHTML = '';
+  alert('請求書を取り消しました。\n再発行すると新しい番号が割り当てられます。');
   goBack();
 }
 
@@ -890,24 +1062,51 @@ function downloadPDF() {
   el.style.minHeight = 'auto';
   if (wrap) wrap.style.height = 'auto';
 
-  // html2canvasでキャプチャ → jsPDFでA4 1ページに収める
-  html2canvas(el, {scale:2, useCORS:true, backgroundColor:'#ffffff'}).then(function(canvas) {
-    const pdf = new jspdf.jsPDF({unit:'mm', format:'a4', orientation:'portrait'});
-    const a4W = 210, a4H = 297;
-    const imgW = canvas.width, imgH = canvas.height;
-
-    // A4に収まるようスケール計算（縦横比維持）
-    const scale = Math.min(a4W / (imgW / 2), a4H / (imgH / 2));
-    const pdfW = (imgW / 2) * scale;
-    const pdfH = (imgH / 2) * scale;
-
-    pdf.addImage(canvas.toDataURL('image/jpeg', 0.98), 'JPEG', 0, 0, pdfW, pdfH);
-    pdf.save('invoice.pdf');
-
-    // 元に戻す
-    el.setAttribute('style', origStyle);
+  function restoreStyle() {
+    // H-4: スタイル復元後にスマホのscaleも再適用
+    el.removeAttribute('style');
+    if (origStyle) el.setAttribute('style', origStyle);
     if (wrap) wrap.style.height = origWrapH;
+    // scaleに応じたwrap高さを再計算
+    setTimeout(() => {
+      if (wrap) {
+        const w = window.innerWidth;
+        const sc = w <= 600 ? 0.45 : w <= 900 ? 0.65 : 1;
+        if (sc < 1) {
+          wrap.style.height = (el.scrollHeight * sc + 20) + 'px';
+        } else {
+          wrap.style.height = '';
+        }
+      }
+    }, 50);
+  }
+
+  // #7: スタイル変更後にブラウザの再描画を待ってからキャプチャ
+  requestAnimationFrame(function() { setTimeout(function() {
+  html2canvas(el, {scale:2, useCORS:true, backgroundColor:'#ffffff'}).then(function(canvas) {
+    try {
+      const pdf = new jspdf.jsPDF({unit:'mm', format:'a4', orientation:'portrait'});
+      const a4W = 210, a4H = 297;
+      const imgW = canvas.width, imgH = canvas.height;
+      const scale = Math.min(a4W / (imgW / 2), a4H / (imgH / 2));
+      const pdfW = (imgW / 2) * scale;
+      const pdfH = (imgH / 2) * scale;
+      pdf.addImage(canvas.toDataURL('image/jpeg', 0.98), 'JPEG', 0, 0, pdfW, pdfH);
+      // H-3: ファイル名に得意先名・年月を含める
+      const pdfClient = APP.currentClient ? APP.currentClient.name : '請求書';
+      const pdfYM = APP.currentYear + String(APP.currentMonth).padStart(2,'0');
+      pdf.save(pdfClient + '_' + pdfYM + '.pdf');
+    } catch(e) {
+      console.error('PDF generation error:', e);
+      alert('PDF生成に失敗しました: ' + e.message);
+    }
+    restoreStyle();
+  }).catch(function(e) {
+    console.error('html2canvas error:', e);
+    alert('請求書の画像化に失敗しました。もう一度お試しください。');
+    restoreStyle();
   });
+  }, 50); });
 }
 
 // ============================================================
@@ -915,6 +1114,22 @@ function downloadPDF() {
 // ============================================================
 function closeModal(id) { document.getElementById(id).style.display = 'none'; }
 function esc(s) { const d = document.createElement('div'); d.textContent = s; return d.innerHTML; }
+
+// #8: YYYY-MM-DD文字列から年月日を安全にパース（UTC解釈を回避）
+function parseDateParts(dateStr) {
+  if (!dateStr) return {y:0, m:0, d:0};
+  const p = String(dateStr).split('-');
+  return {y: parseInt(p[0],10)||0, m: parseInt(p[1],10)||0, d: parseInt(p[2],10)||0};
+}
+
+// Escapeキーでモーダルを閉じる
+document.addEventListener('keydown', function(e) {
+  if (e.key === 'Escape') {
+    ['deliveryModal', 'clientModal'].forEach(id => {
+      if (document.getElementById(id).style.display !== 'none') closeModal(id);
+    });
+  }
+});
 </script>
 </body>
 </html>
